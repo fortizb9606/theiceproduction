@@ -172,11 +172,33 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     },0);
   }
   function dayMetaKgForProduct(iso,product){ var e=metaEntryFor(iso,product); return e?Number(e.kg):dayShiftsMetaKgForProduct(iso,product); }
+  /* si una fila de "Metas del turno" está vacía y ese producto tiene una meta fijada
+     en la pestaña Metas para ese día, se precarga sola (sin pisar lo que ya esté cargado) */
+  function applyMetaPrefillToProducts(products,day){
+    (products||[]).forEach(function(p){
+      var hasVal=p.mesh!==""&&p.mesh!=null&&Number(p.mesh)>0;
+      if(hasVal) return;
+      var e=metaEntryFor(day,p.product);
+      if(e){ p.mesh=(e.mesh!=null?String(e.mesh):""); p.kg=String(e.kg); }
+    });
+  }
+  function dayShiftsMetaMeshForProduct(iso,product){
+    return state.shifts.filter(function(s){ return s.date===iso; }).reduce(function(a,s){
+      var pr=products(s).filter(function(p){ return p.product===product; }).reduce(function(x,p){ return x+Number(p.mesh||0); },0);
+      return a+pr;
+    },0);
+  }
+  function dayMetaMeshForProduct(iso,product){
+    var e=metaEntryFor(iso,product);
+    if(e){ if(e.mesh!=null) return Number(e.mesh); var f=kgMalla(product); return f>0?Number(e.kg)/f:0; }
+    return dayShiftsMetaMeshForProduct(iso,product);
+  }
   function dayShiftsMetaMesh(iso){ return state.shifts.filter(function(s){ return s.date===iso; }).reduce(function(a,s){ return a+metaMesh(s); },0); }
   function dayMetaKg(iso){ return activeProducts().reduce(function(a,p){ return a+dayMetaKgForProduct(iso,p); },0); }
+  function dayMetaMesh(iso){ return activeProducts().reduce(function(a,p){ return a+dayMetaMeshForProduct(iso,p); },0); }
   function eachIsoInRange(rf,rt){ var out=[]; var d=new Date(rf+"T00:00:00"); var end=new Date(rt+"T00:00:00"); var guard=0; while(d.getTime()<=end.getTime()&&guard<400){ out.push(isoDate(d)); d.setDate(d.getDate()+1); guard++; } return out; }
   function sumMetaKgRange(rf,rt){ return eachIsoInRange(rf,rt).reduce(function(a,iso){ return a+dayMetaKg(iso); },0); }
-  function sumMetaMeshRange(rf,rt){ return eachIsoInRange(rf,rt).reduce(function(a,iso){ return a+dayShiftsMetaMesh(iso); },0); }
+  function sumMetaMeshRange(rf,rt){ return eachIsoInRange(rf,rt).reduce(function(a,iso){ return a+dayMetaMesh(iso); },0); }
   var CFG_KEY="theice-config-v1";
   var COST_PER_PERSON=30000, SHOW_COSTS=true, HIGHLIGHT_WEEKEND=true;
   var PALETTE=["#6C63D8","#E5484D","#12A9A0","#E0A020","#2E9BE0","#3E5573","#D95F3B","#9B5DE5","#8595A3","#59A14F"];
@@ -311,8 +333,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     if(overnight) base=new Date(base.getTime()+864e5);
     return base.getTime();
   }
+  var PENDING_SINCE="2026-08-03"; // el recordatorio de "turnos sin cierre" ignora todo lo anterior a esta fecha, para siempre
   function isEnded(s){ return shiftEndMs(s)<state.nowMs; }
-  function pendingShifts(){ return state.shifts.filter(function(s){ return !s.closed && isEnded(s); }).sort(function(a,b){ return shiftEndMs(a)-shiftEndMs(b); }); }
+  function pendingShifts(){ return state.shifts.filter(function(s){ return !s.closed && isEnded(s) && s.date>=PENDING_SINCE; }).sort(function(a,b){ return shiftEndMs(a)-shiftEndMs(b); }); }
 
   function layoutIntervals(items){
     items.sort(function(a,b){ return a._s-b._s || a._e-b._e; });
@@ -448,6 +471,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function openNew(iso,start,end){
     var dates=weekDates().map(isoDate);
     var d=blankDraft(); d.day=iso||dates[0]; if(start)d.start=start; if(end)d.end=end;
+    applyMetaPrefillToProducts(d.products,d.day);
     var prev=findPrevShiftFor(d.day,d.start);
     if(prev){
       d.invInicial=d.products.map(function(p){ var kg=invLookup(prev.invFinal,p.product); var f=kgMalla(p.product); var mesh=(kg!==""&&f>0)?String(Number(kg)/f):""; return {mesh:mesh,kg:kg}; });
@@ -460,6 +484,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function openEdit(id){
     var s=findShift(id); if(!s) return;
     var ps=products(s).length?products(s).map(function(p){ return {product:p.product,kg:String(p.kg==null?"":p.kg),mesh:String(p.mesh==null?"":p.mesh)}; }):[{product:"Original 3 kg",kg:"",mesh:""}];
+    applyMetaPrefillToProducts(ps,s.date);
     state.draft={ title:s.title,day:s.date,type:s.type,start:s.start,end:s.end,products:ps,
       costPerPerson:String(s.costPerPerson==null?COST_PER_PERSON:s.costPerPerson),
       wasteTarget:String(s.wasteTarget==null?"":s.wasteTarget),prodType:s.prodType||"normal",maquina:s.maquina||"si",
@@ -766,7 +791,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var allClosedDay=ds.length>0&&ds.every(function(s){ return s.closed; });
         var closedMeshDayPre=ds.filter(function(s){return s.closed;}).reduce(function(a,s){ return a+Number(s.meshReal||0); },0);
         var kg=allClosedDay?ds.reduce(function(a,s){ return a+Number(s.kgReal||0); },0):dayMetaKg(ciso);
-        var me=allClosedDay?closedMeshDayPre:dayShiftsMetaMesh(ciso);
+        var me=allClosedDay?closedMeshDayPre:dayMetaMesh(ciso);
         var pe=ds.reduce(function(a,s){ return a+pcount(s); },0);
         var co=ds.reduce(function(a,s){ return a+laborCost(s); },0);
         var dsClosed=ds.filter(function(s){ return s.closed; });
