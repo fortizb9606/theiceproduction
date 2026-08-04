@@ -670,7 +670,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var oStart=parseTime(shift.start), oEnd=endHrs(shift), dur=oEnd-oStart, oIso=shift.date; var moved=false;
     state.drag={id:id}; render();
     function move(e){
-      if(Math.abs(e.clientX-startX)>4||Math.abs(e.clientY-startY)>4) moved=true;
+      if(Math.abs(e.clientX-startX)>10||Math.abs(e.clientY-startY)>10) moved=true;
       var snap=Math.round(((e.clientY-startY)/HH)*4)/4;
       var ns=Math.max(HSTART,Math.min(HEND-dur,oStart+snap)), ne=ns+dur; var iso=oIso;
       var el=document.elementFromPoint(e.clientX,e.clientY); var c=el&&el.closest?el.closest("[data-daycol]"):null;
