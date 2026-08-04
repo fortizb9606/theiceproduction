@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Correos con acceso — deben coincidir con ALLOWED_EMAILS en firebase-sync.js
+    function permitido() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
+          'felipe@theice.cl'
+          // , 'otra.persona@theice.cl'
+        ];
+    }
+
+    match /{document=**} {
+      allow read, write: if permitido();
+    }
+  }
+}

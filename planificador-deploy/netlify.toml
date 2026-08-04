@@ -1,0 +1,13 @@
+# Netlify — sitio estático (la app es index.html). Sin build.
+[build]
+  publish = "."
+  # Funciones para la Fase 3 (traer salidas de HubSpot con el token seguro)
+  functions = "netlify/functions"
+
+# Cabeceras de seguridad básicas
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
