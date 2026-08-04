@@ -76,8 +76,10 @@ async function boot() {
   gate.onLogin(doLogin);
   gate.onLogout(() => signOut(auth));
 
-  /* ---- sync en tiempo real ---- */
-  const COLS = { shifts: "shifts", inventory: "inventory", salidas: "salidas" };
+  /* ---- sync en tiempo real ----
+     "metas" agregada (04-ago-2026): faltaba acá, por eso nunca llegaba a Firestore
+     aunque en pantalla pareciera guardarse (quedaba solo en localStorage). */
+  const COLS = { shifts: "shifts", inventory: "inventory", salidas: "salidas", metas: "metas" };
 
   function startSync(user) {
     window.TICloud = {
@@ -88,10 +90,16 @@ async function boot() {
         try {
           if (kind === "config")      return setDoc(doc(db, "config", "main"), sane(obj));
           if (kind === "gen")         return setDoc(doc(db, "meta", "generatedWeeks"), { weeks: obj });
+          if (!COLS[kind]) { console.error("[TISync] set: colección desconocida:", kind); return; }
           return setDoc(doc(db, COLS[kind], String(obj.id)), sane(obj));
         } catch (e) { console.error("[TISync] set", kind, e); }
       },
-      del(kind, id) { try { return deleteDoc(doc(db, COLS[kind], String(id))); } catch (e) { console.error("[TISync] del", e); } },
+      del(kind, id) {
+        try {
+          if (!COLS[kind]) { console.error("[TISync] del: colección desconocida:", kind); return; }
+          return deleteDoc(doc(db, COLS[kind], String(id)));
+        } catch (e) { console.error("[TISync] del", e); }
+      },
       async wipe(kinds) {
         for (const k of (kinds || [])) {
           if (k === "gen") { await setDoc(doc(db, "meta", "generatedWeeks"), { weeks: [] }); continue; }
@@ -111,6 +119,7 @@ async function boot() {
     onSnapshot(collection(db, "shifts"),    s => apply("shifts",    s.docs.map(d => d.data())),  e => console.error("[TISync] shifts", e));
     onSnapshot(collection(db, "inventory"), s => apply("inventory", s.docs.map(d => d.data())),  e => console.error("[TISync] inventory", e));
     onSnapshot(collection(db, "salidas"),   s => apply("salidas",   s.docs.map(d => d.data())),  e => console.error("[TISync] salidas", e));
+    onSnapshot(collection(db, "metas"),     s => apply("metas",     s.docs.map(d => d.data())),  e => console.error("[TISync] metas", e));
     onSnapshot(doc(db, "config", "main"),   d => { if (d.exists()) apply("config", d.data()); });
     onSnapshot(doc(db, "meta", "generatedWeeks"), d => apply("gen", d.exists() ? (d.data().weeks || []) : []));
 
@@ -119,12 +128,13 @@ async function boot() {
     async function migrateOnce() {
       try {
         const snap = await getDocs(collection(db, "shifts"));
-        if (!snap.empty) return; // la nube ya manda
+        if (!snap.empty) return; // la nube ya manda — no vuelve a migrar nunca más
         const local = window.tiLocalData || (() => null);
         const shifts = local("shifts") || [];
         if (!shifts.length) return; // nada local que subir todavía
         shifts.forEach(s => window.TICloud.set("shifts", s));
         (local("inventory") || []).forEach(e => window.TICloud.set("inventory", e));
+        (local("metas") || []).forEach(e => window.TICloud.set("metas", e));
         const cfg = local("config"); if (cfg) window.TICloud.set("config", cfg);
         const gen = local("gen"); if (gen) window.TICloud.set("gen", gen);
         console.info("[TISync] Datos locales migrados a la nube.");
