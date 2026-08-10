@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-10-cobertura-critica-meta-editable -->
+<!-- BUILD-MARK: 2026-08-10-print-fix-cierre-semana -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -82,7 +82,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 
 @keyframes tiNow{0%,100%{opacity:1}50%{opacity:.35}}
 @keyframes tiPulse{0%,100%{opacity:1}50%{opacity:.55}}
-@media print{[data-noprint]{display:none!important}.ti-main{margin-left:0}.ti-content{max-width:none}.ti-printonly{display:block!important}}
+@media print{[data-noprint]{display:none!important}.ti-main{margin-left:0}.ti-content{max-width:none}.ti-printonly{display:block!important}*{box-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;text-shadow:none!important;filter:none!important}.ti-card,[style*="box-shadow"]{box-shadow:none!important}}
 .ti-printonly{display:none}
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
 
@@ -1292,7 +1292,19 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         }).join("");
         var asistenciaReport=asisTotal?('<section style="'+CARD+';overflow:hidden">'+sectionHead("Asistencia del período",asisTotal+" personas-turno · "+(asisPct!=null?asisPct+"% presente":"—"))+'<div style="padding:20px 18px;display:flex;gap:26px;align-items:center;flex-wrap:wrap"><div style="position:relative;width:176px;height:176px;flex:none;margin:0 auto">'+donutSVG(asisArr)+'<div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center"><div><div style="font:600 22px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+(asisPct!=null?asisPct+"%":"—")+'</div><div style="font:600 10px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787)">presente</div></div></div></div><div style="flex:1;min-width:220px">'+asisLegend+'</div></div></section>'):'';
 
-        reportesBody=filterCard+lectura+'<section class="ti-metrics">'+kpisHtml+'</section>'+dailyChart+simulacionAlta+composicion+ranking+salidasReport+asistenciaReport+bagReport+crossTable+cumpl_tbl;
+        var cierreSemanaHtml=(function(){
+          if(!lastClosedShift) return '<section style="'+CARD+';overflow:hidden;border-color:var(--ti-line,#DCE3EA)"><div style="padding:20px;text-align:center;color:var(--ti-muted,#647787);font:500 13px \'Space Grotesk\'">Todavía no hay ningún turno cerrado en el rango — no hay un inventario de cierre que mostrar.</div></section>';
+          var wd=new Date(lastClosedShift.date+"T00:00:00").getDay(); wd=(wd+6)%7;
+          var tipoTxt=lastClosedShift.type==="b"?"Turno Noche":(lastClosedShift.type==="am"?"Turno AM":esc(lastClosedShift.title));
+          var invFinRows=(lastClosedShift.invFinal||[]).map(function(r){ return '<div style="display:flex;align-items:center;gap:10px;padding:5px 0"><span style="width:8px;height:8px;border-radius:2px;flex:none;background:'+prodColor(r.product)+'"></span><span style="flex:1;min-width:0;font:600 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(r.product)+'</span><span style="font:600 12px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(Math.round(Number(r.kg||0)))+' kg</span></div>'; }).join("")||'<div style="font:500 12.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">Sin desglose por producto registrado.</div>';
+          return '<section style="'+CARD+';overflow:hidden;border-color:var(--ti-accent,#0E8FD6);border-width:1.5px">'
+            +'<div style="padding:15px 18px;border-bottom:1px solid var(--ti-line,#DCE3EA);background:var(--ti-accent-soft,#E4F2FB)"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">Con qué inventario partimos la próxima semana</div><div style="margin-top:3px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Cierre del último turno del período — '+DAYS[wd]+' '+new Date(lastClosedShift.date+"T00:00:00").getDate()+' · '+tipoTxt+(lastClosedShift.type==="b"?' (si hubo turno de noche, ese es el que manda)':'')+'</div></div>'
+            +'<div style="padding:18px;display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">'
+              +'<div style="flex:none"><div style="font:700 34px \'IBM Plex Mono\';color:var(--ti-accent,#0E8FD6);letter-spacing:-.02em">'+fmt(Math.round(lastInvEarly))+'</div><div style="font:600 11px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);margin-top:-4px">kg totales de cierre</div></div>'
+              +'<div style="flex:1;min-width:220px;border-left:1px solid var(--ti-line,#DCE3EA);padding-left:22px">'+invFinRows+'</div>'
+            +'</div></section>';
+        })();
+        reportesBody=filterCard+lectura+'<section class="ti-metrics">'+kpisHtml+'</section>'+dailyChart+simulacionAlta+composicion+ranking+salidasReport+asistenciaReport+bagReport+crossTable+cumpl_tbl+cierreSemanaHtml;
       }
     }
 
