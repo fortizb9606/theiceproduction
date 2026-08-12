@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-12-fix-grouppt-planilla-total-liquido -->
+<!-- BUILD-MARK: 2026-08-12-asistencia-pendiente-roster-completo -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -45,6 +45,19 @@ label{-webkit-user-select:none;user-select:none}
 .ti-navfoot{border-top:1px solid var(--ti-nav-line,rgba(255,255,255,.08));padding:14px 12px 2px;margin-top:8px}
 
 .ti-topbar{position:sticky;top:0;z-index:80;display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap;padding:13px 24px 10px;background:var(--ti-topbar,rgba(255,255,255,.82));backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--ti-line,#DCE3EA)}
+.ti-minical{padding:4px 2px 12px;flex:none;margin-top:14px;border-top:1px solid var(--ti-nav-line,rgba(255,255,255,.08))}
+.ti-minical-head{display:flex;align-items:center;justify-content:space-between;padding:0 1px 9px}
+.ti-minical-title{font:700 11.5px 'Space Grotesk';color:var(--ti-nav-text,#E2ECEF);text-transform:capitalize;letter-spacing:-.01em}
+.ti-minical-nav{width:21px;height:21px;border-radius:7px;display:grid;place-items:center;color:var(--ti-nav-label,#5E747B);background:transparent;border:none;cursor:pointer}
+.ti-minical-nav:hover{background:rgba(255,255,255,.09);color:#fff}
+.ti-minical-wd{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:3px}
+.ti-minical-wd span{text-align:center;font:700 8px 'Space Grotesk';letter-spacing:.02em;color:var(--ti-nav-label,#5E747B)}
+.ti-minical-grid{display:grid;grid-template-columns:repeat(7,1fr);row-gap:2px}
+.ti-minical-day{aspect-ratio:1;border:none;border-radius:7px;background:transparent;color:var(--ti-nav-text,#E2ECEF);font:600 10px 'IBM Plex Mono';cursor:pointer;display:grid;place-items:center;font-variant-numeric:tabular-nums}
+.ti-minical-day:hover{background:rgba(255,255,255,.1)}
+.ti-minical-day.out{color:var(--ti-nav-label,#5E747B);opacity:.38}
+.ti-minical-day.today{background:var(--ti-accent,#0E8FD6);color:#fff;font-weight:700}
+.ti-minical-day.curweek:not(.today){background:rgba(255,255,255,.1)}
 .ti-crumb{font:600 11.5px 'Space Grotesk';color:var(--ti-muted,#647787);letter-spacing:.01em}
 .ti-title{font:700 21px/1.1 'Space Grotesk';letter-spacing:-.025em;color:var(--ti-text,#14202B);margin:4px 0 0}
 .ti-sub{font:500 12.5px 'Space Grotesk';color:var(--ti-muted,#647787);margin-top:5px}
@@ -483,6 +496,25 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function monthMode(){ return state.view==="calendario"&&state.calMode==="mes"; }
   function ensureMonth(){ var gs=getMonday(new Date(state.monthMs)); for(var i=0;i<6;i++){ var mo=new Date(gs); mo.setDate(mo.getDate()+i*7); ensureWeek(mo.getTime()); } }
   function monthShift(n){ var d=new Date(state.monthMs); d.setDate(1); d.setMonth(d.getMonth()+n); d.setHours(0,0,0,0); state.monthMs=d.getTime(); ensureMonth(); }
+  function miniCalHtml(){
+    var mDate=new Date(state.monthMs); var mY=mDate.getFullYear(), mM=mDate.getMonth();
+    var monthLabelMini=mDate.toLocaleDateString("es-CL",{month:"long",year:"numeric"});
+    var gridStart=getMonday(new Date(mY,mM,1));
+    var todayIsoMini=isoDate(new Date());
+    var wdRow=DAYS_SHORT.map(function(d){ return '<span>'+d[0]+'</span>'; }).join("");
+    var cells="";
+    for(var i=0;i<42;i++){
+      var cd=new Date(gridStart); cd.setDate(cd.getDate()+i);
+      var ciso=isoDate(cd);
+      var inMonth=cd.getMonth()===mM;
+      var isToday=ciso===todayIsoMini;
+      var wk=getMonday(cd).getTime();
+      var isCurWeek=wk===state.weekStartMs;
+      var cls="ti-minical-day"+(inMonth?"":" out")+(isToday?" today":(isCurWeek?" curweek":""));
+      cells+='<button class="'+cls+'" data-act="minicalday" data-iso="'+ciso+'">'+cd.getDate()+'</button>';
+    }
+    return '<div class="ti-minical"><div class="ti-minical-head"><button class="ti-minical-nav ti-press" data-act="minicalprev" aria-label="Mes anterior">'+IC.chevL(13)+'</button><div class="ti-minical-title">'+monthLabelMini+'</div><button class="ti-minical-nav ti-press" data-act="minicalnext" aria-label="Mes siguiente">'+IC.chevR(13)+'</button></div><div class="ti-minical-wd">'+wdRow+'</div><div class="ti-minical-grid">'+cells+'</div></div>';
+  }
   function setCalMode(m){ state.calMode=m; state.chooser=null; if(m==="mes") ensureMonth(); render(); }
   function prevWeek(){ state.chooser=null; if(monthMode()) monthShift(-1); else { state.weekStartMs-=7*864e5; ensureWeek(state.weekStartMs); } render(); }
   function nextWeek(){ state.chooser=null; if(monthMode()) monthShift(1); else { state.weekStartMs+=7*864e5; ensureWeek(state.weekStartMs); } render(); }
@@ -998,8 +1030,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 
       calendarBody='<section style="'+CARD+';overflow:hidden;display:flex;flex-wrap:wrap">'+metricsHtml+'</section>'+
         '<section class="ti-week-grid" style="'+CARD+';overflow:hidden">'+
-          '<div style="padding:11px 18px;border-bottom:1px solid var(--ti-line,#DCE3EA);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap"><div><div style="font:700 14px \'Space Grotesk\';letter-spacing:-.01em;color:var(--ti-text,#14202B)">'+weekLabel+'</div><div style="margin-top:2px;font:500 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+vis.length+' turnos · '+fmt(Math.round(personHours))+' horas-persona · clic en la barra para asignar personas · la grilla llega a la mañana siguiente (scroll)</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+legendHtml+'</div></div>'+
-          '<div data-scroll data-scroll-id="cal" style="overflow:auto;max-height:calc(100vh - 250px)"><div style="min-width:920px"><div style="display:flex;position:sticky;top:0;z-index:20;background:var(--ti-headbg,#FBFCFE);border-bottom:1px solid var(--ti-line,#DCE3EA)"><div style="width:60px;flex:none;position:sticky;left:0;z-index:2;background:var(--ti-headbg,#FBFCFE);border-right:1px solid var(--ti-line,#DCE3EA)"></div>'+dayHeadHtml+'</div><div style="display:flex"><div style="width:60px;flex:none;position:sticky;left:0;z-index:5;background:var(--ti-headbg,#FBFCFE);border-right:1px solid var(--ti-line,#DCE3EA);height:'+GRIDH+'px;position:relative">'+hoursHtml+'</div>'+daysHtml+'</div></div></div>'+
+          '<div data-scroll data-scroll-id="cal" style="overflow:auto;max-height:calc(100vh - 190px)"><div style="min-width:920px"><div style="display:flex;position:sticky;top:0;z-index:20;background:var(--ti-headbg,#FBFCFE);border-bottom:1px solid var(--ti-line,#DCE3EA)"><div style="width:60px;flex:none;position:sticky;left:0;z-index:2;background:var(--ti-headbg,#FBFCFE);border-right:1px solid var(--ti-line,#DCE3EA)"></div>'+dayHeadHtml+'</div><div style="display:flex"><div style="width:60px;flex:none;position:sticky;left:0;z-index:5;background:var(--ti-headbg,#FBFCFE);border-right:1px solid var(--ti-line,#DCE3EA);height:'+GRIDH+'px;position:relative">'+hoursHtml+'</div>'+daysHtml+'</div></div></div>'+
         '</section>'+
         '<section class="ti-week-agenda" style="'+CARD+';overflow:hidden;padding:4px 0 10px">'+
           '<div style="padding:15px 18px 6px"><div style="font:700 16px \'Space Grotesk\';letter-spacing:-.01em;color:var(--ti-text,#14202B)">'+weekLabel+'</div><div style="margin-top:3px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Toca un turno para abrirlo</div></div>'+
@@ -1032,13 +1063,22 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       var gtabBtn=function(k,l){ var on=state.gruposTab===k; return '<button class="ti-hbtn ti-press" data-act="gtab" data-tab="'+k+'" aria-pressed="'+on+'" style="height:36px;padding:0 15px;border-radius:10px;font:600 12.5px \'Space Grotesk\';background:'+(on?"var(--ti-surface,#fff)":"transparent")+';color:'+(on?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+';box-shadow:'+(on?"0 2px 8px rgba(20,32,43,.12)":"none")+'">'+l+'</button>'; };
       var gTabs='<div style="display:inline-flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA);margin-bottom:16px">'+gtabBtn("horario","Horario semanal")+gtabBtn("inasistencias","Inasistencias")+'</div>';
       var roster=(config.roster||[]).filter(Boolean);
+      var rosterSet={}; roster.forEach(function(n){ rosterSet[n]=true; });
+      isoList.forEach(function(iso){
+        state.shifts.filter(function(s){ return s.date===iso; }).forEach(function(s){
+          allPeople(s).forEach(function(n){ n=(n||"").trim(); if(n&&!rosterSet[n]){ rosterSet[n]=true; roster.push(n); } });
+        });
+      });
       function personStatusOn(iso,name){
         var dayShifts=state.shifts.filter(function(s){ return s.date===iso; });
         if(!dayShifts.length) return "descanso";
         var scheduledIn=dayShifts.filter(function(s){ return allPeople(s).some(function(n){ return (n||"").trim()===name; }); });
-        if(!scheduledIn.length) return "inasistencia";
+        var isFuture=iso>todayIso;
+        if(!scheduledIn.length) return isFuture?"pendiente":"inasistencia";
         for(var i=0;i<scheduledIn.length;i++){ var s=scheduledIn[i]; if(s.closed&&s.attendance&&s.attendance[name]){ var st=s.attendance[name]; if(st==="ausente"||st==="licencia") return st; } }
-        return "presente";
+        var anyClosed=scheduledIn.some(function(s){ return s.closed; });
+        if(anyClosed||iso===todayIso) return "presente";
+        return "pendiente";
       }
       var inasistRows=roster.map(function(name){
         var cells=isoList.map(function(iso){ return personStatusOn(iso,name); });
@@ -1049,6 +1089,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         if(st==="presente") return '<span style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:30px;border-radius:8px;background:var(--ti-ok-soft,#E4F5EC);color:var(--ti-ok,#12A150);font:700 10.5px \'Space Grotesk\'">Presente</span>';
         if(st==="licencia") return '<span style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:30px;border-radius:8px;background:var(--ti-accent-soft,#E4F2FB);color:var(--ti-accent,#0E8FD6);font:700 10.5px \'Space Grotesk\'">Licencia</span>';
         if(st==="inasistencia"||st==="ausente") return '<span style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:30px;border-radius:8px;background:var(--ti-danger-bg,#fff7f7);color:var(--ti-danger,#e5484d);font:700 10.5px \'Space Grotesk\'">'+(st==="ausente"?"Ausente":"Inasistencia")+'</span>';
+        if(st==="pendiente") return '<span style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:30px;border-radius:8px;background:var(--ti-warn-bg,#FFF5E0);color:var(--ti-warn,#B26B00);font:700 10.5px \'Space Grotesk\'">Pendiente</span>';
         return '<span style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:30px;border-radius:8px;background:var(--ti-surface2,#F3F6F9);color:var(--ti-muted,#647787);font:600 10.5px \'Space Grotesk\'">Descanso</span>';
       }
       var inasistHead='<tr><th>Persona</th>'+DAYS_SHORT.map(function(l){ return '<th style="text-align:center">'+l+'</th>'; }).join("")+'<th style="text-align:center">Inasistencias</th></tr>';
@@ -1063,9 +1104,10 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       vis.forEach(function(s){
         var names=[].concat(s.groupA||[],s.groupB||[],s.groupPT||[],s.people||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
         var att=s.attendance||{};
+        var confirmable=s.closed||s.date===todayIso; // sin cerrar y sin ser hoy = todavía no cuenta, queda pendiente
         names.forEach(function(n){
-          payByPerson[n]=payByPerson[n]||{presente:0,licencia:0,ausente:0};
-          var st=att[n]||"presente";
+          payByPerson[n]=payByPerson[n]||{presente:0,licencia:0,ausente:0,pendiente:0};
+          var st=att[n]||(confirmable?"presente":"pendiente");
           payByPerson[n][st]=(payByPerson[n][st]||0)+1;
         });
       });
@@ -1081,7 +1123,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var totalN=liquidoN*turnos+extraN;
         payGranTotal+=totalN;
         return '<tr><td style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(name)+'</td>'
-          +'<td class="ti-num">'+turnos+(c.licencia?(' <span style="color:var(--ti-muted,#647787);font-weight:500">('+c.licencia+' lic.)</span>'):'')+'</td>'
+          +'<td class="ti-num">'+turnos+(c.licencia?(' <span style="color:var(--ti-muted,#647787);font-weight:500">('+c.licencia+' lic.)</span>'):'')+(c.pendiente?(' <span style="color:var(--ti-warn,#B26B00);font-weight:500">('+c.pendiente+' pend.)</span>'):'')+'</td>'
           +'<td><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(rate)+'" placeholder="$ líquido/turno" data-payr-name="'+esc(name)+'" data-payr-turnos="'+turnos+'" style="text-align:right;width:130px"></td>'
           +'<td class="ti-num" data-payrbrutoof="'+esc(name)+'">$'+fmt(brutoN)+'</td>'
           +'<td><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(extraRate)+'" placeholder="$ horas extra" data-payx-name="'+esc(name)+'" style="text-align:right;width:130px"></td>'
@@ -1403,7 +1445,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var bottomNav='<nav class="ti-bottomnav" data-noprint>'+bnavItem("calendario","Calendario",IC.cal(19))+bnavItem("grupos","Grupos",IC.rows(19))+bnavItem("inventario","Inventario",IC.box(19))+bnavItem("metas","Metas",IC.meta(19))+bnavItem("reportes","Reportes",IC.chart(19))+bnavItem("config","Config",IC.gear(19))+'</nav>';
     var fabDay=isoList&&isoList.length?isoList[0]:isoDate(new Date());
     var fabMobile=(state.view==="calendario"&&!state.drawerOpen)?('<button class="ti-fab-mobile ti-press" data-act="fabnew" data-iso="'+fabDay+'" aria-label="Nuevo turno" data-noprint>'+IC.plus(24)+'</button>'):"";
-    var sidebar='<aside class="ti-sidebar" data-noprint><div class="ti-brand"><div class="ti-brand-mark"><div style="width:19px;height:19px;border-radius:50%;border:2.4px solid #fff;display:grid;place-items:center"><div style="width:6px;height:6px;border-radius:50%;background:#fff"></div></div></div><div><div class="ti-brand-kicker">THE ICE</div><div class="ti-brand-title">Producción</div></div></div><div class="ti-navwrap" data-scroll><div class="ti-nav-label">Planificación</div>'+navItem("calendario","Calendario",IC.cal(18))+navItem("grupos","Grupos",IC.rows(18))+'<div class="ti-nav-label">Operación</div>'+navItem("inventario","Inventario",IC.box(18))+navItem("metas","Metas",IC.meta(18))+'<div class="ti-nav-label">Análisis</div>'+navItem("reportes","Reportes",IC.chart(18))+'<div class="ti-nav-label">Sistema</div>'+navItem("config","Configuración",IC.gear(18))+'</div><div class="ti-navfoot"><div style="font:700 10px \'Space Grotesk\';letter-spacing:.16em;color:var(--ti-nav-label,#5E747B)">DATOS AL</div><div style="margin-top:4px;font:600 13px \'IBM Plex Mono\';color:var(--ti-nav-text,#E2ECEF);font-variant-numeric:tabular-nums">'+todayStr+'</div></div></aside>';
+    var sidebar='<aside class="ti-sidebar" data-noprint><div class="ti-brand"><div class="ti-brand-mark"><div style="width:19px;height:19px;border-radius:50%;border:2.4px solid #fff;display:grid;place-items:center"><div style="width:6px;height:6px;border-radius:50%;background:#fff"></div></div></div><div><div class="ti-brand-kicker">THE ICE</div><div class="ti-brand-title">Producción</div></div></div>'+miniCalHtml()+'<div class="ti-navwrap" data-scroll><div class="ti-nav-label">Planificación</div>'+navItem("calendario","Calendario",IC.cal(18))+navItem("grupos","Grupos",IC.rows(18))+'<div class="ti-nav-label">Operación</div>'+navItem("inventario","Inventario",IC.box(18))+navItem("metas","Metas",IC.meta(18))+'<div class="ti-nav-label">Análisis</div>'+navItem("reportes","Reportes",IC.chart(18))+'<div class="ti-nav-label">Sistema</div>'+navItem("config","Configuración",IC.gear(18))+'</div><div class="ti-navfoot"><div style="font:700 10px \'Space Grotesk\';letter-spacing:.16em;color:var(--ti-nav-label,#5E747B)">DATOS AL</div><div style="margin-top:4px;font:600 13px \'IBM Plex Mono\';color:var(--ti-nav-text,#E2ECEF);font-variant-numeric:tabular-nums">'+todayStr+'</div></div></aside>';
 
     /* ---------- topbar ---------- */
     var themeMeta=[{key:"glaciar",label:"Glaciar",dot:"#0E8FD6"},{key:"vapor",label:"Vapor",dot:"#C6721E"},{key:"medianoche",label:"Medianoche",dot:"#38B2F2"}];
@@ -1530,6 +1572,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     if(act==="nav") setView(btn.getAttribute("data-view"));
     else if(act==="calmode") setCalMode(btn.getAttribute("data-mode"));
     else if(act==="monthday"){ var mi=btn.getAttribute("data-iso"); state.chooser=null; state.weekStartMs=getMonday(new Date(mi+"T00:00:00")).getTime(); ensureWeek(state.weekStartMs); state.calMode="semana"; render(); }
+    else if(act==="minicalprev"){ monthShift(-1); render(); }
+    else if(act==="minicalnext"){ monthShift(1); render(); }
+    else if(act==="minicalday"){ var pi=btn.getAttribute("data-iso"); state.view="calendario"; state.chooser=null; state.weekStartMs=getMonday(new Date(pi+"T00:00:00")).getTime(); ensureWeek(state.weekStartMs); state.calMode="semana"; var pd=new Date(pi+"T00:00:00"); state.monthMs=new Date(pd.getFullYear(),pd.getMonth(),1).getTime(); render(); }
     else if(act==="theme") setTheme(btn.getAttribute("data-theme"));
     else if(act==="prevWeek") prevWeek();
     else if(act==="nextWeek") nextWeek();
