@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-12-grupo-parttime-horas-extra -->
+<!-- BUILD-MARK: 2026-08-12-fix-grouppt-planilla-total-liquido -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -396,7 +396,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var xEl=root.querySelector('[data-payx-name="'+name.replace(/"/g,'\\"')+'"]');
     var extra=(xEl&&xEl.value!==""&&!isNaN(Number(xEl.value)))?Number(xEl.value):0;
     var bEl=root.querySelector('[data-payrbrutoof="'+name.replace(/"/g,'\\"')+'"]'); if(bEl) bEl.textContent="$"+fmt(bruto);
-    var tEl=root.querySelector('[data-payrtotalof="'+name.replace(/"/g,'\\"')+'"]'); if(tEl) tEl.textContent="$"+fmt(bruto*turnos+extra);
+    var tEl=root.querySelector('[data-payrtotalof="'+name.replace(/"/g,'\\"')+'"]'); if(tEl) tEl.textContent="$"+fmt(liquido*turnos+extra);
   }
   function persistCfg(){ try{ localStorage.setItem(CFG_KEY,JSON.stringify(config)); }catch(e){} }
   /* ---- puente de sincronización en la nube (Firestore · opcional, ver firebase-sync.js) ---- */
@@ -1061,7 +1061,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       // calculado solo (líquido × 1,24), y el total a pagar de la fila.
       var payByPerson={};
       vis.forEach(function(s){
-        var names=[].concat(s.groupA||[],s.groupB||[],s.people||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
+        var names=[].concat(s.groupA||[],s.groupB||[],s.groupPT||[],s.people||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
         var att=s.attendance||{};
         names.forEach(function(n){
           payByPerson[n]=payByPerson[n]||{presente:0,licencia:0,ausente:0};
@@ -1078,7 +1078,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var brutoN=Math.round(liquidoN*1.24);
         var extraRate=(config.payExtra&&config.payExtra[name])||"";
         var extraN=extraRate?Number(extraRate):0;
-        var totalN=brutoN*turnos+extraN;
+        var totalN=liquidoN*turnos+extraN;
         payGranTotal+=totalN;
         return '<tr><td style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(name)+'</td>'
           +'<td class="ti-num">'+turnos+(c.licencia?(' <span style="color:var(--ti-muted,#647787);font-weight:500">('+c.licencia+' lic.)</span>'):'')+'</td>'
@@ -1088,7 +1088,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
           +'<td class="ti-num" style="font-weight:700;color:var(--ti-text,#14202B)" data-payrtotalof="'+esc(name)+'">$'+fmt(totalN)+'</td></tr>';
       }).join("")||'<tr><td colspan="6" style="text-align:center;color:var(--ti-muted,#647787);padding:22px">Sin operarios part-time en turnos de esta semana. Marca a alguien como "Part time" en Configuración → Personas activas para que aparezca acá.</td></tr>';
       var payTotalRow=payNames.length?('<tr style="background:var(--ti-surface2,#F3F6F9)"><td style="font-weight:700">Total a pagar</td><td></td><td></td><td></td><td></td><td class="ti-num" style="font-weight:700;font-size:14px">$'+fmt(payGranTotal)+'</td></tr>'):'';
-      var planillaPagos='<section style="'+CARD+';overflow:hidden;margin-top:18px">'+sectionHead("Planilla de pagos",payNames.length+" operarios part-time · turnos presente de la semana")+'<p style="margin:0;padding:0 18px 12px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Solo salen acá los marcados "Part time" en Configuración — los full-time se pagan aparte, con la planilla de fin de mes. Escribe el valor líquido por turno y, si corresponde, un monto de horas extra a mano — el bruto se calcula solo (líquido × 1,24) y todo se guarda automáticamente al salir del campo.</p><div style="overflow:auto"><table class="ti-tbl"><thead><tr><th>Operario</th><th style="text-align:right">Turnos presente</th><th>Valor líquido/turno</th><th style="text-align:right">Bruto/turno</th><th>Horas extra ($)</th><th style="text-align:right">Total a pagar</th></tr></thead><tbody>'+payRows+payTotalRow+'</tbody></table></div></section>';
+      var planillaPagos='<section style="'+CARD+';overflow:hidden;margin-top:18px">'+sectionHead("Planilla de pagos",payNames.length+" operarios part-time · turnos presente de la semana")+'<p style="margin:0;padding:0 18px 12px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Solo salen acá los marcados "Part time" en Configuración — los full-time se pagan aparte, con la planilla de fin de mes. Escribe el valor líquido por turno y, si corresponde, un monto de horas extra a mano — el bruto (líquido × 1,24) es solo referencia — el Total a pagar se calcula sobre el líquido (líquido × turnos + horas extra) y se guarda automáticamente al salir del campo.</p><div style="overflow:auto"><table class="ti-tbl"><thead><tr><th>Operario</th><th style="text-align:right">Turnos presente</th><th>Valor líquido/turno</th><th style="text-align:right">Bruto/turno</th><th>Horas extra ($)</th><th style="text-align:right">Total a pagar</th></tr></thead><tbody>'+payRows+payTotalRow+'</tbody></table></div></section>';
       inasistTable=inasistTable+planillaPagos;
       var horarioSection='<section style="display:flex;gap:16px;flex-wrap:wrap;align-items:stretch">'+
           '<div style="flex:1;min-width:520px;'+CARD+';overflow:hidden">'+
