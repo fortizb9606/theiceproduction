@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-12-asistencia-pendiente-roster-completo -->
+<!-- BUILD-MARK: 2026-08-12-resumen-dia-inventario-heredado -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -485,6 +485,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     drawerOpen:false, editingId:null, draft:blankDraft(),
     drag:null, nowMs:Date.now(), scrollReal:false,
     chooser:null,
+    daySummaryIso:null,
     invDraft:{date:isoDate(new Date()),product:PRODUCTS[0],qty:"",mesh:"",shiftId:"",note:""},
     salDraft:{date:isoDate(new Date()),product:PRODUCTS[0],mesh:"",kg:"",note:""},
     salBusy:false,
@@ -496,6 +497,50 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function monthMode(){ return state.view==="calendario"&&state.calMode==="mes"; }
   function ensureMonth(){ var gs=getMonday(new Date(state.monthMs)); for(var i=0;i<6;i++){ var mo=new Date(gs); mo.setDate(mo.getDate()+i*7); ensureWeek(mo.getTime()); } }
   function monthShift(n){ var d=new Date(state.monthMs); d.setDate(1); d.setMonth(d.getMonth()+n); d.setHours(0,0,0,0); state.monthMs=d.getTime(); ensureMonth(); }
+  function daySummaryHtml(){
+    if(!state.daySummaryIso) return "";
+    var iso=state.daySummaryIso;
+    var d=new Date(iso+"T00:00:00"); var wd=d.getDay(); wd=(wd+6)%7;
+    var dateLabel=DAYS[wd]+" "+d.getDate()+" de "+d.toLocaleDateString("es-CL",{month:"long"});
+    var dayShifts=state.shifts.filter(function(s){ return s.date===iso; }).sort(function(a,b){ return parseTime(a.start)-parseTime(b.start); });
+    var isPast=iso<isoDate(new Date());
+    var body;
+    if(!dayShifts.length){
+      body='<div style="padding:26px 22px;text-align:center;color:var(--ti-muted,#647787);font:500 13px \'Space Grotesk\'">Sin turnos programados este día.</div>';
+    } else {
+      var cards=dayShifts.map(function(s){
+        var closed=!!s.closed;
+        var kgShow=closed?(s.kgReal||0):metaKg(s);
+        var meshShow=closed?(s.meshReal||0):metaMesh(s);
+        var cpk=(closed&&kgShow>0)?Math.round(laborCost(s)/kgShow):null;
+        var names=allPeople(s).map(function(n){return (n||"").trim();}).filter(Boolean);
+        var att=s.attendance||{};
+        var ausentes=names.filter(function(n){ return att[n]==="ausente"; });
+        var estadoChip=closed?'<span style="display:inline-flex;align-items:center;gap:4px;font:700 9.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-ok,#12A150);background:var(--ti-ok-soft,#E4F5EC);padding:3px 8px;border-radius:6px">'+IC.check(10)+'Cerrado</span>':(isEnded(s)?'<span style="font:700 9.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-warn,#B26B00);background:var(--ti-warn-bg,#FFF5E0);padding:3px 8px;border-radius:6px">Pendiente cierre</span>':'<span style="font:700 9.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-accent,#0E8FD6);background:var(--ti-accent-soft,#E4F2FB);padding:3px 8px;border-radius:6px">Programado</span>');
+        var invClose=null;
+        if(closed&&s.invFinal&&s.invFinal.length){ invClose=s.invFinal.reduce(function(a,x){ return a+Number(x.kg||0); },0); }
+        return '<div style="border:1px solid var(--ti-line,#DCE3EA);border-radius:14px;padding:14px 16px;margin-bottom:10px">'
+          +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><div style="font:700 14px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(s.title)+' <span style="font:500 12px \'IBM Plex Mono\';color:var(--ti-muted,#647787)">'+esc(timeLabel(s))+'</span></div>'+estadoChip+'</div>'
+          +'<div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px">'
+            +'<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">Personas</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+names.length+'</div></div>'
+            +'<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">'+(closed?"Producción real":"Meta")+'</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(Math.round(kgShow))+' kg</div></div>'
+            +'<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">Mallas</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(Math.round(meshShow))+'</div></div>'
+            +(cpk!=null?('<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">Costo/kg</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">$'+fmt(cpk)+'</div></div>'):'')
+            +(invClose!=null?('<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">Inv. cierre</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(Math.round(invClose))+' kg</div></div>'):'')
+          +'</div>'
+          +(ausentes.length?('<div style="margin-top:10px;font:600 11.5px \'Space Grotesk\';color:var(--ti-danger,#e5484d)">Ausentes: '+ausentes.map(esc).join(", ")+'</div>'):'')
+          +'<button class="ti-ghost ti-press" data-act="openShiftFromSummary" data-id="'+s.id+'" style="margin-top:12px;height:36px;padding:0 14px;border-radius:10px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface2,#F3F6F9);color:var(--ti-text,#14202B);font:600 12.5px \'Space Grotesk\'">Abrir turno</button>'
+        +'</div>';
+      }).join("");
+      body='<div style="padding:16px 20px 6px">'+cards+'</div>';
+    }
+    return '<div data-act="closeDaySummary" style="position:fixed;inset:0;z-index:70;background:rgba(11,15,20,.42);backdrop-filter:blur(2px)"></div>'
+      +'<div role="dialog" aria-modal="true" aria-label="Resumen del día" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:71;width:min(480px,92vw);max-height:82vh;display:flex;flex-direction:column;border-radius:18px;background:var(--ti-surface,#fff);box-shadow:0 24px 60px rgba(11,15,20,.35);overflow:hidden">'
+        +'<div style="padding:17px 20px;border-bottom:1px solid var(--ti-line,#DCE3EA);display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none"><div style="font:700 16px \'Space Grotesk\';letter-spacing:-.01em;color:var(--ti-text,#14202B);text-transform:capitalize">'+dateLabel+'</div><button class="ti-close ti-press" data-act="closeDaySummary" aria-label="Cerrar" style="width:34px;height:34px;flex:none;border-radius:10px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface2,#F3F6F9);color:var(--ti-muted,#647787);display:grid;place-items:center">'+IC.close()+'</button></div>'
+        +'<div style="overflow:auto;flex:1">'+body+'</div>'
+        +'<div style="padding:14px 20px;border-top:1px solid var(--ti-line,#DCE3EA);flex:none"><button class="ti-primary ti-press" data-act="daySummaryGoWeek" style="width:100%;height:42px;border-radius:11px;background:var(--ti-accent,#0E8FD6);color:var(--ti-accent-ink,#fff);font:600 13.5px \'Space Grotesk\'">Ver semana completa</button></div>'
+      +'</div>';
+  }
   function miniCalHtml(){
     var mDate=new Date(state.monthMs); var mY=mDate.getFullYear(), mM=mDate.getMonth();
     var monthLabelMini=mDate.toLocaleDateString("es-CL",{month:"long",year:"numeric"});
@@ -551,6 +596,19 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var s=findShift(id); if(!s) return;
     var ps=products(s).length?products(s).map(function(p){ return {product:p.product,kg:String(p.kg==null?"":p.kg),mesh:String(p.mesh==null?"":p.mesh)}; }):[{product:"Original 3 kg",kg:"",mesh:""}];
     applyMetaPrefillToProducts(ps,s.date);
+    var invIniBuilt=ps.map(function(p){ var kg=invLookup(s.invInicial,p.product); var f=kgMalla(p.product); var mesh=(kg!==""&&f>0)?String(Number(kg)/f):""; return {mesh:mesh,kg:kg}; });
+    var invIni20Built={sacos:(s.invInicial20&&s.invInicial20.kg!=null)?String(Number(s.invInicial20.kg)/20):"",kg:(s.invInicial20&&s.invInicial20.kg!=null)?String(s.invInicial20.kg):""};
+    // Si el turno nunca tuvo Inventario inicial cargado (típico de los turnos generados
+    // automáticamente cada semana, que nacen sin inventario), lo heredamos del cierre
+    // del turno anterior — mismo criterio que ya se usaba al crear un turno nuevo a mano.
+    var invIniAllBlank=invIniBuilt.every(function(row){ return row.kg===""; })&&!invIni20Built.kg;
+    if(invIniAllBlank&&!s.closed){
+      var prevForEdit=findPrevShiftFor(s.date,s.start);
+      if(prevForEdit){
+        invIniBuilt=ps.map(function(p){ var kg=invLookup(prevForEdit.invFinal,p.product); var f=kgMalla(p.product); var mesh=(kg!==""&&f>0)?String(Number(kg)/f):""; return {mesh:mesh,kg:kg}; });
+        if(prevForEdit.invFinal20&&prevForEdit.invFinal20.kg!=null){ invIni20Built={sacos:String(Number(prevForEdit.invFinal20.kg)/20),kg:String(prevForEdit.invFinal20.kg)}; }
+      }
+    }
     state.draft={ title:s.title,day:s.date,type:s.type,start:s.start,end:s.end,products:ps,
       costPerPerson:String(s.costPerPerson==null?COST_PER_PERSON:s.costPerPerson),
       wasteTarget:String(s.wasteTarget==null?"":s.wasteTarget),prodType:s.prodType||"normal",maquina:s.maquina||"si",
@@ -559,9 +617,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       notes:s.notes||"",
       closed:!!s.closed,
       attendance:(function(){ var out={}; if(s.attendance){ for(var k in s.attendance){ if(s.attendance.hasOwnProperty(k)) out[k]=s.attendance[k]; } } return out; })(),
-      invInicial:ps.map(function(p){ var kg=invLookup(s.invInicial,p.product); var f=kgMalla(p.product); var mesh=(kg!==""&&f>0)?String(Number(kg)/f):""; return {mesh:mesh,kg:kg}; }),
+      invInicial:invIniBuilt,
       invCounts:ps.map(function(p){ var kg=invLookup(s.invFinal,p.product); var f=kgMalla(p.product); var mesh=(kg!==""&&f>0)?String(Number(kg)/f):""; return {mesh:mesh,kg:kg}; }),
-      invInicial20:{sacos:(s.invInicial20&&s.invInicial20.kg!=null)?String(Number(s.invInicial20.kg)/20):"",kg:(s.invInicial20&&s.invInicial20.kg!=null)?String(s.invInicial20.kg):""},
+      invInicial20:invIni20Built,
       invFinal20:{sacos:(s.invFinal20&&s.invFinal20.kg!=null)?String(Number(s.invFinal20.kg)/20):"",kg:(s.invFinal20&&s.invFinal20.kg!=null)?String(s.invFinal20.kg):""},
       realByProduct:ps.map(function(p,i){ var rb=s.realByProduct&&s.realByProduct[i]; return {kg:rb?String(rb.kg):"",mesh:rb?String(rb.mesh):""}; }) };
     state.editingId=id; state.drawerOpen=true; state.chooser=null; render();
@@ -1554,7 +1612,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       '<div style="border-top:1px solid var(--ti-line,#DCE3EA);padding:14px 20px;display:flex;gap:10px;align-items:center;background:var(--ti-surface,#fff);flex:none">'+deleteBtn+dupBtn+'<div style="display:flex;gap:10px;margin-left:auto"><button class="ti-close ti-press" data-act="close" style="height:42px;padding:0 16px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13.5px \'Space Grotesk\'">Cancelar</button><button class="ti-primary ti-press" data-act="save" style="height:42px;padding:0 20px;border-radius:11px;background:var(--ti-accent,#0E8FD6);color:var(--ti-accent-ink,#fff);font:600 13.5px \'Space Grotesk\';box-shadow:0 8px 20px var(--ti-accentshadow,rgba(14,143,214,.32))">Guardar turno</button></div></div></aside>';
 
     var content=state.view==="reportes"?reportesBody:(state.view==="grupos"?gruposBody:(state.view==="inventario"?inventarioBody:(state.view==="metas"?metasBody:(state.view==="config"?configBody:calendarBody))));
-    var html='<div class="ti-app" style="'+themeVars+'">'+sidebar+'<div class="ti-main">'+topbar+'<div class="ti-content">'+bannerHtml+content+'</div></div>'+drawer+chooserHtml+bottomNav+fabMobile+'</div>';
+    var html='<div class="ti-app" style="'+themeVars+'">'+sidebar+'<div class="ti-main">'+topbar+'<div class="ti-content">'+bannerHtml+content+'</div></div>'+drawer+chooserHtml+daySummaryHtml()+bottomNav+fabMobile+'</div>';
 
     var scrolls={};
     Array.prototype.forEach.call(root.querySelectorAll("[data-scroll-id]"),function(el){ scrolls[el.getAttribute("data-scroll-id")]={t:el.scrollTop,l:el.scrollLeft}; });
@@ -1574,7 +1632,10 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(act==="monthday"){ var mi=btn.getAttribute("data-iso"); state.chooser=null; state.weekStartMs=getMonday(new Date(mi+"T00:00:00")).getTime(); ensureWeek(state.weekStartMs); state.calMode="semana"; render(); }
     else if(act==="minicalprev"){ monthShift(-1); render(); }
     else if(act==="minicalnext"){ monthShift(1); render(); }
-    else if(act==="minicalday"){ var pi=btn.getAttribute("data-iso"); state.view="calendario"; state.chooser=null; state.weekStartMs=getMonday(new Date(pi+"T00:00:00")).getTime(); ensureWeek(state.weekStartMs); state.calMode="semana"; var pd=new Date(pi+"T00:00:00"); state.monthMs=new Date(pd.getFullYear(),pd.getMonth(),1).getTime(); render(); }
+    else if(act==="minicalday"){ var pi=btn.getAttribute("data-iso"); state.daySummaryIso=pi; render(); }
+    else if(act==="closeDaySummary"){ state.daySummaryIso=null; render(); }
+    else if(act==="daySummaryGoWeek"){ var gi=state.daySummaryIso; state.daySummaryIso=null; state.view="calendario"; state.chooser=null; state.weekStartMs=getMonday(new Date(gi+"T00:00:00")).getTime(); ensureWeek(state.weekStartMs); state.calMode="semana"; var gd=new Date(gi+"T00:00:00"); state.monthMs=new Date(gd.getFullYear(),gd.getMonth(),1).getTime(); render(); }
+    else if(act==="openShiftFromSummary"){ state.daySummaryIso=null; openEdit(btn.getAttribute("data-id")); }
     else if(act==="theme") setTheme(btn.getAttribute("data-theme"));
     else if(act==="prevWeek") prevWeek();
     else if(act==="nextWeek") nextWeek();
@@ -1626,7 +1687,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   root.addEventListener("input",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-person-idx")){ var pg=t.getAttribute("data-person-group")||""; var pk=pkey(pg); state.draft[pk][+t.getAttribute("data-person-idx")]=t.value; updateComputed(); } else if(t.hasAttribute("data-invini-idx")){ var vi=+t.getAttribute("data-invini-idx"); var vif=t.getAttribute("data-invini-f"); if(!state.draft.invInicial) state.draft.invInicial=[]; if(!state.draft.invInicial[vi]) state.draft.invInicial[vi]={mesh:"",kg:""}; state.draft.invInicial[vi][vif]=t.value; if(vif==="mesh") autoKgInvIni(vi); updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="mesh") autoKgProd(pi); updateComputed(); } else if(t.hasAttribute("data-invclose-idx")){ var ii=+t.getAttribute("data-invclose-idx"); var iif=t.getAttribute("data-invclose-f"); if(!state.draft.invCounts) state.draft.invCounts=[]; if(!state.draft.invCounts[ii]) state.draft.invCounts[ii]={mesh:"",kg:""}; state.draft.invCounts[ii][iif]=t.value; if(iif==="mesh") autoKgInvFinal(ii); updateComputed(); } else if(t.hasAttribute("data-saco20-tag")){ var s20tag=t.getAttribute("data-saco20-tag"); var s20f=t.getAttribute("data-saco20-f"); var s20key=s20tag==="ini"?"invInicial20":"invFinal20"; if(!state.draft[s20key]) state.draft[s20key]={sacos:"",kg:""}; state.draft[s20key][s20f]=t.value; if(s20f==="sacos") autoKgSaco20(s20tag); updateComputed(); } else if(t.hasAttribute("data-cfg-prod")){ config.bagStock[t.getAttribute("data-cfg-prod")]=t.value; } else if(t.hasAttribute("data-cfg-num")){ config[t.getAttribute("data-cfg-num")]=t.value; } else if(t.hasAttribute("data-cfg-list")){ var lk=t.getAttribute("data-cfg-list"); var cf=lk==="roster"?"roster":(lk==="defA"?"defaultGroupA":"defaultGroupB"); if(!config[cf])config[cf]=[]; config[cf][+t.getAttribute("data-cfg-idx")]=t.value; } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="mesh"){ var fac=kgMalla(state.invDraft.product); if(fac>0){ state.invDraft.qty=(t.value===""?"":String(Number(t.value||0)*fac)); var qe=root.querySelector('[data-inv-f="qty"]'); if(qe){ qe.value=state.invDraft.qty; qe.readOnly=true; } } } } else if(t.hasAttribute("data-salrow-idx")){ var sri=+t.getAttribute("data-salrow-idx"); var srf=t.getAttribute("data-salrow-f"); if(!state.draft.salidasCount) state.draft.salidasCount=[]; if(!state.draft.salidasCount[sri]) state.draft.salidasCount[sri]={mesh:"",kg:""}; state.draft.salidasCount[sri][srf]=t.value; if(srf==="mesh") autoKgSalRow(sri); updateComputed(); } else if(t.hasAttribute("data-metaquick-f")){ if(!state.metaQuick) state.metaQuick={product:activeProducts()[0]||"Original 3 kg",mesh:"",kg:""}; var mqf=t.getAttribute("data-metaquick-f"); state.metaQuick[mqf]=t.value; if(mqf==="mesh"){ var mqfac=kgMalla(state.metaQuick.product); if(mqfac>0){ state.metaQuick.kg=(t.value===""?"":String(Number(t.value||0)*mqfac)); var mqke=root.querySelector('[data-metaquick-f="kg"]'); if(mqke){ mqke.value=state.metaQuick.kg; mqke.readOnly=true; } } } else if(mqf==="product"){ render(); } } else if(t.hasAttribute("data-metaday-iso")){ var mdIso=t.getAttribute("data-metaday-iso"), mdProd=t.getAttribute("data-metaday-product"), mdF=t.getAttribute("data-metaday-f"); if(mdF==="mesh"){ var mdFac=kgMalla(mdProd); if(mdFac>0){ var kgv=(t.value===""?"":String(Number(t.value||0)*mdFac)); var kgEl=root.querySelector('[data-metadaykgof="'+mdIso+'|'+mdProd+'"]'); if(kgEl){ kgEl.value=kgv; kgEl.readOnly=true; } } } } else if(t.hasAttribute("data-sal-f")){ var sf=t.getAttribute("data-sal-f"); state.salDraft[sf]=t.value; if(sf==="mesh"){ var sfac=kgMalla(state.salDraft.product); if(sfac>0){ state.salDraft.kg=(t.value===""?"":String(Number(t.value||0)*sfac)); var ske=root.querySelector('[data-sal-f="kg"]'); if(ske){ ske.value=state.salDraft.kg; ske.readOnly=true; } } } } else if(t.hasAttribute("data-payr-name")){ autoPayRow(t.getAttribute("data-payr-name")); } else if(t.hasAttribute("data-payx-name")){ autoPayRow(t.getAttribute("data-payx-name")); } });
   root.addEventListener("blur",function(e){ var t=e.target; if(!t||!t.hasAttribute) return; if(t.hasAttribute("data-salrow-idx")) salRowCommit(+t.getAttribute("data-salrow-idx")); else if(t.hasAttribute("data-payr-name")) payRateCommit(t.getAttribute("data-payr-name")); else if(t.hasAttribute("data-payx-name")) payExtraCommit(t.getAttribute("data-payx-name")); else if(t.hasAttribute("data-metaday-iso")){ var miso=t.getAttribute("data-metaday-iso"), mprod=t.getAttribute("data-metaday-product"); var meshEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="mesh"]'); var kgEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="kg"]'); var meshV=meshEl?meshEl.value:""; var kgV=kgEl?kgEl.value:""; var kgN=(kgV!==""&&!isNaN(Number(kgV)))?Number(kgV):0; var meshN=(meshV!==""&&!isNaN(Number(meshV)))?Number(meshV):null; metaCommit(miso,mprod,kgN,meshN); render(); } },true);
   root.addEventListener("change",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="product"){ autoKgProd(pi); render(); } else { if(pf==="mesh") autoKgProd(pi); updateComputed(); } } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="date"||iff==="shiftId"||iff==="product") render(); } else if(t.hasAttribute("data-sal-f")){ var slf=t.getAttribute("data-sal-f"); state.salDraft[slf]=t.value; if(slf==="date"||slf==="product") render(); } else if(t.hasAttribute("data-rep-f")){ var rff=t.getAttribute("data-rep-f"); if(rff==="from") state.repFrom=t.value; else if(rff==="to") state.repTo=t.value; else if(rff==="altaDemanda") state.repAltaDemandaTon=Number(t.value||30); render(); } });
-  document.addEventListener("keydown",function(e){ if(e.key==="Escape"){ if(state.chooser) closeChooser(); else if(state.drawerOpen) closeDrawer(); } });
+  document.addEventListener("keydown",function(e){ if(e.key==="Escape"){ if(state.daySummaryIso){ state.daySummaryIso=null; render(); } else if(state.chooser) closeChooser(); else if(state.drawerOpen) closeDrawer(); } });
   setInterval(function(){ state.nowMs=Date.now(); render(); },60000);
 
   /* ============ nube: recibir datos remotos (lo llama firebase-sync.js en tiempo real) ============ */
