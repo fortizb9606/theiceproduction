@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-12-resumen-dia-inventario-heredado -->
+<!-- BUILD-MARK: 2026-08-19-planilla-de-pagos-modulo -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -96,6 +96,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 @keyframes tiNow{0%,100%{opacity:1}50%{opacity:.35}}
 @keyframes tiPulse{0%,100%{opacity:1}50%{opacity:.55}}
 @media print{[data-noprint]{display:none!important}.ti-main{margin-left:0}.ti-content{max-width:none}.ti-printonly{display:block!important}*{box-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;text-shadow:none!important;filter:none!important}.ti-card,[style*="box-shadow"]{box-shadow:none!important}}
+@keyframes tiBillFall{0%{opacity:0;top:6%;transform:rotate(-15deg) scale(1)}12%{opacity:1}100%{opacity:0;top:92%;transform:rotate(var(--spin,340deg)) scale(.55)}}
+@keyframes tiSackBounce{0%,100%{transform:scale(1) translateY(0)}18%{transform:scale(1.18) translateY(-6px)}36%{transform:scale(.94) translateY(0)}54%{transform:scale(1.08) translateY(-3px)}72%{transform:scale(1) translateY(0)}}
+@keyframes tiBonusPop{0%{opacity:0;transform:translate(-50%,10px) scale(.8)}70%{opacity:1;transform:translate(-50%,0) scale(1.04)}100%{opacity:1;transform:translate(-50%,0) scale(1)}}
 .ti-printonly{display:none}
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
 
@@ -244,6 +247,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     chevR:function(){return svg('<path d="M9 6l6 6-6 6"/>',17,2.3);},
     plus:function(s){return svg('<path d="M12 5v14M5 12h14"/>',s||17,2.2);},
     copy:function(s){return svg('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',s||17,1.9);},
+    refresh:function(s){return svg('<path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/>',s||17,2);},
     close:function(){return svg('<path d="M18 6L6 18M6 6l12 12"/>',18,2.1);},
     check:function(s){return svg('<path d="M20 6L9 17l-5-5"/>',s||13,2.6);},
     alert:function(){return svg('<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',18,2);},
@@ -330,7 +334,68 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var n=0; names.forEach(function(nm){ nm=nm.trim(); var st=s.attendance[nm]||"presente"; if(st!=="ausente") n++; });
     return n;
   }
+  function presentInfo(s){
+    var names=allPeople(s).map(function(n){ return (n||"").trim(); }).filter(Boolean);
+    var att=s.attendance||{};
+    var total=0,licencia=0;
+    names.forEach(function(nm){ var st=att[nm]||"presente"; if(st==="ausente") return; total++; if(st==="licencia") licencia++; });
+    return {total:total,licencia:licencia};
+  }
   function laborCost(s){ return paidHeadcount(s)*Number((config&&config.costPerPerson!=null)?config.costPerPerson:COST_PER_PERSON); }
+
+  /* ── Bono de producción (setting final ago-2026, validado por Felipe) ──
+     Puerto directo de bono.js — mismos autotest pasando exacto:
+       calcularBonoObj({personas:6,mallas:259}).liquidoPersona === 6327
+       calcularBonoObj({personas:6,mallas:260}) → pozo 49950 congelado, retoma 271
+       calcularBonoObj({personas:3,mallas:130}).liquidoPersona === 6194 */
+  var BONO_CONFIG={
+    costoBrutoPersonaTurno:37000,
+    costoObjetivoKg:70,
+    kgPorMalla:15,
+    factorLiquido:0.76,
+    personasReferencia:6,
+    umbralesBase:[190,220,260,300,360],
+    repartoEquipoPct:[100,80,70,60],
+    maxDiasBajoBaseMes:3,
+  };
+  function bonoUmbrales(personas){ var f=personas/BONO_CONFIG.personasReferencia; return BONO_CONFIG.umbralesBase.map(function(x){ return Math.round(x*f); }); }
+  function bonoInicio(personas){ var labor=personas*BONO_CONFIG.costoBrutoPersonaTurno; return Math.floor(labor/(BONO_CONFIG.costoObjetivoKg*BONO_CONFIG.kgPorMalla))+1; }
+  function bonoPozoCrudo(personas,mallas){
+    var th=bonoUmbrales(personas);
+    var labor=personas*BONO_CONFIG.costoBrutoPersonaTurno;
+    var kg=mallas*BONO_CONFIG.kgPorMalla;
+    var ahorro=Math.max(0,BONO_CONFIG.costoObjetivoKg*kg-labor);
+    var li=-1; th.forEach(function(t,i){ if(mallas>=t) li=i; });
+    var pct=ahorro>0?(li>=2?BONO_CONFIG.repartoEquipoPct[Math.min(li-1,3)]:BONO_CONFIG.repartoEquipoPct[0])/100:0;
+    return {pozo:ahorro*pct,ahorro:ahorro,nivelIndex:li,pctEquipo:pct};
+  }
+  function calcularBonoObj(personas,mallas){
+    if(!(personas>0)) return {pozoDiaBruto:0,pozoCongelado:false,retomaEn:null,brutoPersona:0,liquidoPersona:0,nivel:"Sin bono",ahorroDisponible:0};
+    var th=bonoUmbrales(personas);
+    var r=bonoPozoCrudo(personas,mallas);
+    var pozo=r.pozo;
+    [2,3,4].forEach(function(i){ if(mallas>=th[i]) pozo=Math.max(pozo,bonoPozoCrudo(personas,th[i]-1).pozo); });
+    var congelado=pozo>r.pozo+0.5;
+    var retomaEn=null;
+    if(congelado){ for(var b=Math.ceil(mallas)+1;b<=Math.ceil(mallas)+250;b++){ if(bonoPozoCrudo(personas,b).pozo>pozo+0.5){ retomaEn=b; break; } } }
+    var nivel=r.ahorro<=0?(mallas>=th[0]?"Base":"Sin bono"):(r.nivelIndex>=2?"N"+r.nivelIndex:"N1");
+    return {
+      pozoDiaBruto:Math.round(pozo), pozoCongelado:congelado, retomaEn:retomaEn,
+      brutoPersona:Math.round(pozo/personas), liquidoPersona:Math.round(pozo/personas*BONO_CONFIG.factorLiquido),
+      nivel:nivel, ahorroDisponible:r.ahorro, umbrales:th,
+    };
+  }
+  /* Bono del día: junta TODOS los turnos cerrados de esa fecha (personas pagadas +
+     mallas reales), corre la fórmula una vez, y reparte el líquido en partes iguales
+     entre quienes trabajaron ese día (presente o con licencia — igual que la MO). */
+  function bonoDayCompute(iso){
+    var dayShifts=state.shifts.filter(function(s){ return s.date===iso&&s.closed; });
+    if(!dayShifts.length) return null;
+    var personas=0,mallas=0;
+    dayShifts.forEach(function(s){ personas+=paidHeadcount(s); mallas+=Number(s.meshReal||0); });
+    if(!(personas>0)) return null;
+    return calcularBonoObj(personas,mallas);
+  }
   function prevDayInventory(iso){
     var before=state.shifts.filter(function(s){ return s.closed && s.date<iso && s.invFinal && s.invFinal.length; });
     if(!before.length) return null;
@@ -374,6 +439,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     if(!c.bagStock) c.bagStock={};
     if(!c.payRates) c.payRates={};
     if(!c.payExtra) c.payExtra={};
+    if(!c.extraHoursByPersonDay) c.extraHoursByPersonDay={};
     if(!c.rosterType) c.rosterType={};
     if(!c.defaultGroupA) c.defaultGroupA=["Nicole Iglesia","Santiago Valderrama","Kevin Giraldo",""];
     if(!c.defaultGroupB) c.defaultGroupB=["José Salazar","Wilfredo",""];
@@ -398,6 +464,16 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var n=(v!==""&&!isNaN(Number(v)))?Number(v):0;
     if(!config.payExtra) config.payExtra={};
     if(n>0) config.payExtra[name]=n; else delete config.payExtra[name];
+    persistCfg(); cloudSet('config',config);
+    render();
+  }
+  function extraHoursKey(name,iso){ return name+"|"+iso; }
+  function extraHoursPersonCommit(key){
+    var el=root.querySelector('[data-extrahours-key="'+key.replace(/"/g,'\\"')+'"]');
+    var v=el?el.value:"";
+    var n=(v!==""&&!isNaN(Number(v)))?Number(v):0;
+    if(!config.extraHoursByPersonDay) config.extraHoursByPersonDay={};
+    if(n>0) config.extraHoursByPersonDay[key]=n; else delete config.extraHoursByPersonDay[key];
     persistCfg(); cloudSet('config',config);
     render();
   }
@@ -442,7 +518,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function persist(){ try{ localStorage.setItem(STORAGE_KEY,JSON.stringify(state.shifts)); }catch(e){} }
   function persistGen(){ try{ localStorage.setItem(GEN_KEY,JSON.stringify(genWeeks)); }catch(e){} }
   function persistInv(){ try{ localStorage.setItem(INV_KEY,JSON.stringify(inventory)); }catch(e){} }
-  function blankDraft(){ var pr=DEFAULT_PRODUCTS.map(function(p){return {product:p,kg:"",mesh:""};}); return {title:"",day:"",type:"am",start:"07:00",end:"16:00",products:pr,costPerPerson:String(COST_PER_PERSON),wasteTarget:"2",prodType:"normal",maquina:"si",people:["","",""],groupA:(config&&config.defaultGroupA?config.defaultGroupA.slice():["","","",""]),groupB:(config&&config.defaultGroupB?config.defaultGroupB.slice():["","",""]),groupPT:[""],notes:"",closed:false,attendance:{},invInicial:pr.map(function(){return {mesh:"",kg:""};}),invCounts:pr.map(function(){return {mesh:"",kg:""};}),invInicial20:{sacos:"",kg:""},invFinal20:{sacos:"",kg:""},realByProduct:pr.map(function(){return {kg:"",mesh:""};})}; }
+  function blankDraft(){ var pr=activeProducts().map(function(p){return {product:p,kg:"",mesh:""};}); return {title:"",day:"",type:"am",start:"07:00",end:"16:00",products:pr,costPerPerson:String(COST_PER_PERSON),wasteTarget:"2",prodType:"normal",maquina:"si",people:["","",""],groupA:(config&&config.defaultGroupA?config.defaultGroupA.slice():["","","",""]),groupB:(config&&config.defaultGroupB?config.defaultGroupB.slice():["","",""]),groupPT:[""],notes:"",closed:false,attendance:{},invInicial:pr.map(function(){return {mesh:"",kg:""};}),invCounts:pr.map(function(){return {mesh:"",kg:""};}),invInicial20:{sacos:"",kg:""},invFinal20:{sacos:"",kg:""},realByProduct:pr.map(function(){return {kg:"",mesh:""};})}; }
   function updateShift(id,patch){ state.shifts=state.shifts.map(function(s){ return s.id===id?Object.assign({},s,patch):s; }); }
   function weekDates(){ var ws=new Date(state.weekStartMs); var out=[]; for(var i=0;i<7;i++){ var d=new Date(ws); d.setDate(d.getDate()+i); out.push(d);} return out; }
   function findShift(id){ for(var i=0;i<state.shifts.length;i++){ if(state.shifts[i].id===id) return state.shifts[i]; } return null; }
@@ -489,7 +565,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     invDraft:{date:isoDate(new Date()),product:PRODUCTS[0],qty:"",mesh:"",shiftId:"",note:""},
     salDraft:{date:isoDate(new Date()),product:PRODUCTS[0],mesh:"",kg:"",note:""},
     salBusy:false,
-    gruposTab:"horario"
+    gruposTab:"inasistencias"
   };
 
   /* ============ navigation ============ */
@@ -516,13 +592,14 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var names=allPeople(s).map(function(n){return (n||"").trim();}).filter(Boolean);
         var att=s.attendance||{};
         var ausentes=names.filter(function(n){ return att[n]==="ausente"; });
+        var pinfoSum=presentInfo(s);
         var estadoChip=closed?'<span style="display:inline-flex;align-items:center;gap:4px;font:700 9.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-ok,#12A150);background:var(--ti-ok-soft,#E4F5EC);padding:3px 8px;border-radius:6px">'+IC.check(10)+'Cerrado</span>':(isEnded(s)?'<span style="font:700 9.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-warn,#B26B00);background:var(--ti-warn-bg,#FFF5E0);padding:3px 8px;border-radius:6px">Pendiente cierre</span>':'<span style="font:700 9.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-accent,#0E8FD6);background:var(--ti-accent-soft,#E4F2FB);padding:3px 8px;border-radius:6px">Programado</span>');
         var invClose=null;
         if(closed&&s.invFinal&&s.invFinal.length){ invClose=s.invFinal.reduce(function(a,x){ return a+Number(x.kg||0); },0); }
         return '<div style="border:1px solid var(--ti-line,#DCE3EA);border-radius:14px;padding:14px 16px;margin-bottom:10px">'
           +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><div style="font:700 14px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(s.title)+' <span style="font:500 12px \'IBM Plex Mono\';color:var(--ti-muted,#647787)">'+esc(timeLabel(s))+'</span></div>'+estadoChip+'</div>'
           +'<div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px">'
-            +'<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">Personas</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+names.length+'</div></div>'
+            +'<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">Personas</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+pinfoSum.total+(pinfoSum.licencia?(' <span style="font:600 11px \'Space Grotesk\';color:var(--ti-warn,#B26B00)">('+pinfoSum.licencia+' lic.)</span>'):'')+'</div></div>'
             +'<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">'+(closed?"Producción real":"Meta")+'</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(Math.round(kgShow))+' kg</div></div>'
             +'<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">Mallas</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(Math.round(meshShow))+'</div></div>'
             +(cpk!=null?('<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">Costo/kg</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">$'+fmt(cpk)+'</div></div>'):'')
@@ -579,6 +656,14 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     });
     return best;
   }
+  function pullPrevInv(){
+    var d=state.draft; if(!d) return;
+    var prev=findPrevShiftFor(d.day,d.start);
+    if(!prev){ alert("No encontré ningún turno anterior con inventario de cierre para traer."); return; }
+    d.invInicial=d.products.map(function(p){ var kg=invLookup(prev.invFinal,p.product); var f=kgMalla(p.product); var mesh=(kg!==""&&f>0)?String(Number(kg)/f):""; return {mesh:mesh,kg:kg}; });
+    if(prev.invFinal20&&prev.invFinal20.kg!=null){ d.invInicial20={sacos:String(Number(prev.invFinal20.kg)/20),kg:String(prev.invFinal20.kg)}; }
+    render();
+  }
   function openNew(iso,start,end){
     var dates=weekDates().map(isoDate);
     var d=blankDraft(); d.day=iso||dates[0]; if(start)d.start=start; if(end)d.end=end;
@@ -594,7 +679,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function invLookup(list,productName){ if(!list) return ""; for(var i=0;i<list.length;i++){ if(list[i].product===productName) return String(list[i].kg==null?"":list[i].kg); } return ""; }
   function openEdit(id){
     var s=findShift(id); if(!s) return;
-    var ps=products(s).length?products(s).map(function(p){ return {product:p.product,kg:String(p.kg==null?"":p.kg),mesh:String(p.mesh==null?"":p.mesh)}; }):[{product:"Original 3 kg",kg:"",mesh:""}];
+    var ps=activeProducts().map(function(pname){ var existing=products(s).filter(function(p){ return p.product===pname; })[0]; return {product:pname,kg:String(existing&&existing.kg!=null?existing.kg:""),mesh:String(existing&&existing.mesh!=null?existing.mesh:"")}; });
     applyMetaPrefillToProducts(ps,s.date);
     var invIniBuilt=ps.map(function(p){ var kg=invLookup(s.invInicial,p.product); var f=kgMalla(p.product); var mesh=(kg!==""&&f>0)?String(Number(kg)/f):""; return {mesh:mesh,kg:kg}; });
     var invIni20Built={sacos:(s.invInicial20&&s.invInicial20.kg!=null)?String(Number(s.invInicial20.kg)/20):"",kg:(s.invInicial20&&s.invInicial20.kg!=null)?String(s.invInicial20.kg):""};
@@ -665,6 +750,52 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     if(parseTime(d.end)===parseTime(d.start)){ alert("La hora de término no puede ser igual a la de inicio."); return; }
     commit(buildShift()); state.drawerOpen=false; render();
   }
+  function playCashRegisterSound(){
+    try{
+      var Ctx=window.AudioContext||window.webkitAudioContext; if(!Ctx) return;
+      var ctx=new Ctx();
+      var now=ctx.currentTime;
+      // "cha" — golpe corto de ruido filtrado (la campanilla mecánica)
+      var bufSize=ctx.sampleRate*0.08;
+      var buf=ctx.createBuffer(1,bufSize,ctx.sampleRate);
+      var data=buf.getChannelData(0);
+      for(var i=0;i<bufSize;i++) data[i]=(Math.random()*2-1)*(1-i/bufSize);
+      var noise=ctx.createBufferSource(); noise.buffer=buf;
+      var noiseFilter=ctx.createBiquadFilter(); noiseFilter.type="highpass"; noiseFilter.frequency.value=1800;
+      var noiseGain=ctx.createGain(); noiseGain.gain.setValueAtTime(.35,now); noiseGain.gain.exponentialRampToValueAtTime(.001,now+0.09);
+      noise.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(ctx.destination);
+      noise.start(now); noise.stop(now+0.1);
+      // "ching!" — dos campanadas ascendentes tipo caja registradora
+      [ [now+0.05,1318.5,0.28], [now+0.16,1760,0.34] ].forEach(function(t){
+        var osc=ctx.createOscillator(); osc.type="triangle"; osc.frequency.value=t[1];
+        var osc2=ctx.createOscillator(); osc2.type="sine"; osc2.frequency.value=t[1]*2.01;
+        var g=ctx.createGain(); g.gain.setValueAtTime(0,t[0]); g.gain.linearRampToValueAtTime(.22,t[0]+0.012); g.gain.exponentialRampToValueAtTime(.001,t[0]+t[2]);
+        osc.connect(g); osc2.connect(g); g.connect(ctx.destination);
+        osc.start(t[0]); osc.stop(t[0]+t[2]+0.02);
+        osc2.start(t[0]); osc2.stop(t[0]+t[2]+0.02);
+      });
+      setTimeout(function(){ ctx.close(); },900);
+    }catch(e){}
+  }
+  function playBonusAnimation(montoTexto){
+    playCashRegisterSound();
+    var el=document.createElement('div');
+    el.style.cssText='position:fixed;inset:0;z-index:9999;pointer-events:none;overflow:hidden';
+    var billSvg='<svg width="0" height="0" viewBox="0 0 46 26" style="width:100%;height:100%;display:block"><rect x="1" y="1" width="44" height="24" rx="5" fill="var(--ti-ok,#12A150)" stroke="#0d7a3c" stroke-width="1.5"/><rect x="4.5" y="4.5" width="37" height="17" rx="2.5" fill="none" stroke="#eafff0" stroke-width="1" stroke-dasharray="2 2"/><circle cx="23" cy="13" r="6.2" fill="#eafff0"/><text x="23" y="16.3" text-anchor="middle" font-size="9" font-weight="700" fill="#0e8f4f" font-family="Arial">$</text><circle cx="7" cy="13" r="1.3" fill="#eafff0"/><circle cx="39" cy="13" r="1.3" fill="#eafff0"/></svg>';
+    var bills=''; var n=20;
+    for(var i=0;i<n;i++){
+      var left=(4+Math.random()*90).toFixed(1);
+      var dur=(1.3+Math.random()*0.75).toFixed(2);
+      var delay=(Math.random()*0.5).toFixed(2);
+      var w=(30+Math.random()*20).toFixed(0);
+      var spin=(Math.random()>0.5?1:-1)*(280+Math.random()*160).toFixed(0);
+      bills+='<div style="position:absolute;left:'+left+'%;top:0;width:'+w+'px;--spin:'+spin+'deg;animation:tiBillFall '+dur+'s cubic-bezier(.4,0,.7,1) '+delay+'s both">'+billSvg+'</div>';
+    }
+    var monto=montoTexto?('<div style="position:absolute;left:50%;bottom:22%;transform:translateX(-50%);animation:tiBonusPop .5s ease .5s both;font:700 15px \'Space Grotesk\';color:#fff;background:rgba(18,64,38,.92);padding:7px 16px;border-radius:999px;box-shadow:0 10px 26px rgba(0,0,0,.28);white-space:nowrap">'+montoTexto+'</div>'):'';
+    el.innerHTML=bills+monto;
+    document.body.appendChild(el);
+    setTimeout(function(){ el.remove(); },2400);
+  }
   function closeShift(){
     if(!state.draft.title.trim()){ alert("Agrega un título al turno antes de cerrarlo."); return; }
     var d=state.draft;
@@ -680,6 +811,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var f20=d.invFinal20&&d.invFinal20.kg; if(f20!==""&&f20!=null&&!isNaN(Number(f20))){ var e4={id:uid(),date:d.day,product:"Saco 20 kg",qty:Number(f20),mesh:(d.invFinal20.sacos!==""?Number(d.invFinal20.sacos):null),bags:null,shiftId:state.editingId||"",shiftTitle:d.title,note:"Conteo fin de turno",ts:state.nowMs+1900}; inventory.push(e4); cloudSet('inventory',e4); }
     persistInv();
     state.draft.closed=true; commit(buildShift()); state.drawerOpen=false; render();
+    // Animación de cierre — el monto real del bono se conecta acá apenas Felipe
+    // defina la fórmula del pozo; por ahora solo el efecto visual sin monto.
+    playBonusAnimation();
   }
   function reopenShift(){ state.draft.closed=false; commit(buildShift()); render(); }
   function duplicateShiftToNextDay(){
@@ -843,6 +977,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function draftMetaKg(){ return state.draft.products.reduce(function(a,p){ return a+Number(p.kg||0); },0); }
   function draftMetaMesh(){ return state.draft.products.reduce(function(a,p){ return a+Number(p.mesh||0); },0); }
   function draftPaidHeadcount(){ var d=state.draft; var names=rosterNames(d.type==="am"?d.groupA.concat(d.groupB).concat(d.groupPT||[]):d.people); var n=0; names.forEach(function(nm){ var st=(d.attendance&&d.attendance[nm])||"presente"; if(st!=="ausente") n++; }); return n; }
+  function draftPresentInfo(){ var d=state.draft; var names=rosterNames(d.type==="am"?d.groupA.concat(d.groupB).concat(d.groupPT||[]):d.people); var total=0,licencia=0; names.forEach(function(nm){ var st=(d.attendance&&d.attendance[nm])||"presente"; if(st==="ausente") return; total++; if(st==="licencia") licencia++; }); return {total:total,licencia:licencia}; }
   function draftLabor(){ var pc=draftPaidHeadcount(); return pc*Number((config&&config.costPerPerson!=null)?config.costPerPerson:COST_PER_PERSON); }
   function draftCPK(){ var kg=draftMetaKg(); return kg>0?("$"+fmt(Math.round(draftLabor()/kg))):"—"; }
   /* ---- producción real = Inventario final − Inventario inicial + Salidas (cuadre automático) ---- */
@@ -1012,14 +1147,16 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
               '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px"><span style="font:600 10.5px \'IBM Plex Mono\';color:'+tx+';opacity:.72">'+esc(timeLabel(first))+'</span><span style="font:600 9.5px \'IBM Plex Mono\';color:'+tx+';opacity:.6">'+totPeople+' pers.</span></div>'+
               '<div style="margin-top:5px;display:flex;flex-direction:column;gap:2px">'+rows+'</div>'+kgline+'</div>';
           } else if(first.type==="am"){
-            var s=first; var closed=!!s.closed; var na=gcount(s.groupA), nb=gcount(s.groupB), npt=gcount(s.groupPT), tot=na+nb+npt;
+            var s=first; var closed=!!s.closed; var na=gcount(s.groupA), nb=gcount(s.groupB), npt=gcount(s.groupPT);
+            var pinfo=presentInfo(s); var tot=pinfo.total;
             var amStyle=base.replace("border-left:3px solid "+c.bar+";","")+"padding-left:12px;cursor:grab;";
             var grad='<div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(to bottom,'+th.types.a.bar+' 0 50%,'+th.types.b.bar+' 50% 100%)"></div>';
             var grow=function(nm,col,n){ return '<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:3px;flex:none;background:'+col+'"></span><span style="font:600 11px \'Space Grotesk\';color:'+tx+'">'+nm+'</span>'+peopleIcons(n,col)+'<span style="font:600 9.5px \'IBM Plex Mono\';color:'+tx+';opacity:.6;margin-left:auto">'+n+'p</span></div>'; };
             var amChips=""; if(closed){ amChips+=chip(IC.check(9)+' '+fmt(s.kgReal||0)+' kg',tx,chipStrong,"display:inline-flex;align-items:center;gap:3px;box-shadow:inset 0 0 0 1px var(--ti-ok,#12A150)"); amChips+=chip(fmt(s.meshReal||0)+' mallas',tx,chipStrong); var cpkAmReal=(s.kgReal||0)>0?Math.round(laborCost(s)/s.kgReal):null; if(cpkAmReal!=null) amChips+=chip('$'+fmt(cpkAmReal)+'/kg',tx,chipStrong); } else { amChips+=chip(fmt(metaKg(s))+' kg',tx,chipBg); amChips+=chip(fmt(metaMesh(s))+' mallas',tx,chipBg); var cpkAm=metaKg(s)>0?Math.round(laborCost(s)/metaKg(s)):null; if(cpkAm!=null) amChips+=chip('$'+fmt(cpkAm)+'/kg',tx,chipBg); }
             var amBadge=closed?'<span style="display:inline-flex;align-items:center;gap:3px;font:600 8.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-ok,#12A150);background:var(--ti-ok-soft,#E4F5EC);padding:2px 6px;border-radius:5px">'+IC.check(10)+'Real</span>':(isEnded(s)?'<span style="font:600 8.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-warn,#B26B00);background:var(--ti-warn-bg,#FFF5E0);padding:2px 6px;border-radius:5px">Pend.</span>':'');
-            return '<div class="ti-shift ti-press" data-card-id="'+s.id+'" title="Turno AM · '+tot+' personas" style="'+amStyle+'">'+grad+
-              '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px"><span style="font:600 10.5px \'IBM Plex Mono\';color:'+tx+';opacity:.72">'+esc(timeLabel(s))+'</span><span style="font:700 10px \'IBM Plex Mono\';color:'+tx+'">'+tot+' pers.</span></div>'+
+            var totLabel=tot+' pers.'+(pinfo.licencia?(' <span style="opacity:.7;font-weight:600">('+pinfo.licencia+' lic.)</span>'):'');
+            return '<div class="ti-shift ti-press" data-card-id="'+s.id+'" title="Turno AM · '+tot+' personas real'+(pinfo.licencia?(' ('+pinfo.licencia+' con licencia)'):'')+'" style="'+amStyle+'">'+grad+
+              '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px"><span style="font:600 10.5px \'IBM Plex Mono\';color:'+tx+';opacity:.72">'+esc(timeLabel(s))+'</span><span style="font:700 10px \'IBM Plex Mono\';color:'+tx+'">'+totLabel+'</span></div>'+
               '<div style="margin-top:3px;display:flex;align-items:center;gap:7px"><span style="font:700 13px \'Space Grotesk\';color:'+tx+'">'+esc(s.title)+'</span>'+amBadge+'</div>'+
               '<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">'+grow("Grupo A",th.types.a.bar,na)+grow("Grupo B",th.types.b.bar,nb)+(npt>0?grow("Part-time",th.types.custom.bar,npt):"")+'</div>'+
               (height>=118?'<div style="margin-top:auto;display:flex;gap:5px;flex-wrap:wrap;padding-top:6px">'+amChips+'</div>':'')+
@@ -1138,11 +1275,6 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         if(anyClosed||iso===todayIso) return "presente";
         return "pendiente";
       }
-      var inasistRows=roster.map(function(name){
-        var cells=isoList.map(function(iso){ return personStatusOn(iso,name); });
-        var faltas=cells.filter(function(c){ return c==="inasistencia"||c==="ausente"; }).length;
-        return {name:name,cells:cells,faltas:faltas};
-      });
       function inasistBadge(st){
         if(st==="presente") return '<span style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:30px;border-radius:8px;background:var(--ti-ok-soft,#E4F5EC);color:var(--ti-ok,#12A150);font:700 10.5px \'Space Grotesk\'">Presente</span>';
         if(st==="licencia") return '<span style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:30px;border-radius:8px;background:var(--ti-accent-soft,#E4F2FB);color:var(--ti-accent,#0E8FD6);font:700 10.5px \'Space Grotesk\'">Licencia</span>';
@@ -1150,9 +1282,55 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         if(st==="pendiente") return '<span style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:30px;border-radius:8px;background:var(--ti-warn-bg,#FFF5E0);color:var(--ti-warn,#B26B00);font:700 10.5px \'Space Grotesk\'">Pendiente</span>';
         return '<span style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:30px;border-radius:8px;background:var(--ti-surface2,#F3F6F9);color:var(--ti-muted,#647787);font:600 10.5px \'Space Grotesk\'">Descanso</span>';
       }
-      var inasistHead='<tr><th>Persona</th>'+DAYS_SHORT.map(function(l){ return '<th style="text-align:center">'+l+'</th>'; }).join("")+'<th style="text-align:center">Inasistencias</th></tr>';
-      var inasistBody2=inasistRows.length?inasistRows.map(function(r){ return '<tr><td style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(r.name)+'</td>'+r.cells.map(function(c){ return '<td style="padding:5px 6px">'+inasistBadge(c)+'</td>'; }).join("")+'<td class="ti-num" style="font-weight:700;color:'+(r.faltas>0?"var(--ti-danger,#e5484d)":"var(--ti-muted,#647787)")+'">'+r.faltas+'</td></tr>'; }).join(""):'<tr><td colspan="9" style="text-align:center;color:var(--ti-muted,#647787);padding:26px">No hay personas activas configuradas.</td></tr>';
-      var inasistTable='<section style="'+CARD+';overflow:hidden"><div style="padding:15px 18px;border-bottom:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">Inasistencias de la semana</div><p style="margin:5px 0 0;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Si una persona no aparece en ningún turno programado, o queda marcada "Ausente" al cerrar su turno, cuenta como inasistencia. "Licencia" no cuenta como falta (se sigue pagando). Los días sin ningún turno se muestran como descanso.</p></div><div style="overflow:auto"><table class="ti-tbl"><thead>'+inasistHead+'</thead><tbody>'+inasistBody2+'</tbody></table></div></section>';
+      // Sistema de bonos — vista armada primero; el monto real del pozo y cómo se
+      // reparte todavía lo tiene que definir Felipe. Por ahora bonoDiaFor() es un
+      // placeholder que siempre da null (se ve "—") — conectar acá la fórmula real
+      // apenas esté definida (pozo del día ÷ presentes de ese turno, u lo que sea).
+      var bonoDayCache={};
+      function bonoDiaFor(iso,name){
+        var st=personStatusOn(iso,name);
+        if(st!=="presente"&&st!=="licencia") return null;
+        if(!bonoDayCache.hasOwnProperty(iso)) bonoDayCache[iso]=bonoDayCompute(iso);
+        var b=bonoDayCache[iso];
+        return (b&&b.liquidoPersona>0)?b.liquidoPersona:null;
+      }
+      function pagoDiarioFor(iso,name){
+        var st=personStatusOn(iso,name);
+        if(st!=="presente"&&st!=="licencia") return null;
+        var rate=config.payRates&&config.payRates[name];
+        return rate?Number(rate):null;
+      }
+      var rosterFull=roster.filter(function(n){ return !(config.rosterType&&config.rosterType[n]==="part"); });
+      var rosterPart=roster.filter(function(n){ return config.rosterType&&config.rosterType[n]==="part"; });
+      function attTableSection(titulo,names,esParttime){
+        if(!names.length) return "";
+        var rowsHtml=names.map(function(name){
+          var cells=isoList.map(function(iso){ return personStatusOn(iso,name); });
+          var faltas=cells.filter(function(c){ return c==="inasistencia"||c==="ausente"; }).length;
+          var rowspan=esParttime?4:3;
+          var r1='<tr><td rowspan="'+rowspan+'" style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B);vertical-align:middle;border-right:1px solid var(--ti-line2,#E8EDF2)">'+esc(name)+'</td>'
+            +'<td style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);white-space:nowrap;padding-right:10px">Asistencia</td>'
+            +cells.map(function(c){ return '<td style="padding:5px 6px">'+inasistBadge(c)+'</td>'; }).join("")
+            +'<td rowspan="'+rowspan+'" class="ti-num" style="vertical-align:middle;font-weight:700;color:'+(faltas>0?"var(--ti-danger,#e5484d)":"var(--ti-muted,#647787)")+'">'+faltas+'</td></tr>';
+          var r2='<tr style="border-top:1px dashed var(--ti-line2,#E8EDF2)"><td style="font:600 10px \'Space Grotesk\';color:var(--ti-warn,#B26B00);white-space:nowrap;padding-right:10px">Bono día</td>'
+            +isoList.map(function(iso){ var b=bonoDiaFor(iso,name); var bd=bonoDayCache[iso]; var tip=bd?('Nivel '+bd.nivel+' · pozo del equipo $'+fmt(bd.pozoDiaBruto)+(bd.pozoCongelado?(' (congelado, retoma en '+bd.retomaEn+' mallas)'):'')):''; return '<td class="ti-num" title="'+esc(tip)+'" style="padding:5px 6px;font:600 12px \'IBM Plex Mono\';color:'+(b?"var(--ti-warn,#B26B00)":"var(--ti-muted,#647787)")+'">'+(b?("$"+fmt(b)):"—")+'</td>'; }).join("")
+          +'</tr>';
+          var r3='<tr style="border-top:1px dashed var(--ti-line2,#E8EDF2)"><td style="font:600 10px \'Space Grotesk\';color:#7C5CBF;white-space:nowrap;padding-right:10px">Horas adic.</td>'
+            +isoList.map(function(iso){ var key=extraHoursKey(name,iso); var v=(config.extraHoursByPersonDay&&config.extraHoursByPersonDay[key])||""; return '<td style="padding:4px 5px"><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(v)+'" placeholder="$0" data-extrahours-key="'+esc(key)+'" style="width:100%;text-align:center;padding:5px 3px;font-size:11.5px"></td>'; }).join("")
+          +'</tr>';
+          var r4=esParttime?('<tr style="border-top:1px dashed var(--ti-line2,#E8EDF2)"><td style="font:600 10px \'Space Grotesk\';color:var(--ti-accent,#0E8FD6);white-space:nowrap;padding-right:10px">Pago diario</td>'
+            +isoList.map(function(iso){ var p=pagoDiarioFor(iso,name); return '<td class="ti-num" style="padding:5px 6px;font:600 12px \'IBM Plex Mono\';color:'+(p?"var(--ti-accent,#0E8FD6)":"var(--ti-muted,#647787)")+'">'+(p?("$"+fmt(p)):"—")+'</td>'; }).join("")
+          +'</tr>'):'';
+          return r1+r2+r3+r4;
+        }).join("");
+        var head='<tr><th>Persona</th><th></th>'+DAYS_SHORT.map(function(l){ return '<th style="text-align:center">'+l+'</th>'; }).join("")+'<th style="text-align:center">Inasistencias</th></tr>';
+        return '<div style="margin-top:'+(esParttime?"18px":"0")+'"><div style="padding:12px 18px 8px;font:700 12.5px \'Space Grotesk\';letter-spacing:.02em;color:var(--ti-text,#14202B);text-transform:uppercase">'+titulo+'</div><div style="overflow:auto"><table class="ti-tbl"><thead>'+head+'</thead><tbody>'+rowsHtml+'</tbody></table></div></div>';
+      }
+      var inasistTable='<section style="'+CARD+';overflow:hidden"><div style="padding:15px 18px;border-bottom:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">Inasistencias de la semana</div><p style="margin:5px 0 0;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Si una persona no aparece en ningún turno programado, o queda marcada "Ausente" al cerrar su turno, cuenta como inasistencia. "Licencia" no cuenta como falta (se sigue pagando). Los días sin ningún turno se muestran como descanso. El bono día todavía no tiene monto — falta definir la fórmula del pozo. "Horas adic." es un monto manual por persona y por día.</p></div>'
+        +(rosterFull.length?attTableSection("Full times",rosterFull,false):"")
+        +(rosterPart.length?attTableSection("Part times",rosterPart,true):"")
+        +(!rosterFull.length&&!rosterPart.length?'<div style="padding:26px 18px;text-align:center;color:var(--ti-muted,#647787);font:500 13px \'Space Grotesk\'">No hay personas activas configuradas.</div>':"")
+      +'</section>';
 
       // Planilla de pagos de la semana: por operario, cuántos turnos quedó
       // PRESENTE (licencia y ausente no se pagan), valor líquido por turno
@@ -1201,7 +1379,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
             '<ul style="margin:0;padding-left:18px">'+comolee+'</ul>'+
           '</div>'+
         '</section>';
-      gruposBody=gTabs+(state.gruposTab==="inasistencias"?inasistTable:horarioSection);
+      gruposBody=inasistTable;
     }
 
     /* ---------- INVENTARIO ---------- */
@@ -1500,16 +1678,16 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     /* ---------- sidebar ---------- */
     function navItem(view,label,icon){ var on=state.view===view; return '<button class="ti-nav'+(on?' ti-nav-on':'')+' ti-press" data-act="nav" data-view="'+view+'" aria-current="'+(on?'page':'false')+'"><span class="ti-nav-ic">'+icon+'</span>'+label+'</button>'; }
     function bnavItem(view,label,icon){ var on=state.view===view; return '<button class="ti-bnav-item'+(on?' ti-bnav-on':'')+' ti-press" data-act="nav" data-view="'+view+'" aria-current="'+(on?'page':'false')+'">'+icon+'<span>'+label+'</span></button>'; }
-    var bottomNav='<nav class="ti-bottomnav" data-noprint>'+bnavItem("calendario","Calendario",IC.cal(19))+bnavItem("grupos","Grupos",IC.rows(19))+bnavItem("inventario","Inventario",IC.box(19))+bnavItem("metas","Metas",IC.meta(19))+bnavItem("reportes","Reportes",IC.chart(19))+bnavItem("config","Config",IC.gear(19))+'</nav>';
+    var bottomNav='<nav class="ti-bottomnav" data-noprint>'+bnavItem("calendario","Calendario",IC.cal(19))+bnavItem("grupos","Pagos",IC.rows(19))+bnavItem("inventario","Inventario",IC.box(19))+bnavItem("metas","Metas",IC.meta(19))+bnavItem("reportes","Reportes",IC.chart(19))+bnavItem("config","Config",IC.gear(19))+'</nav>';
     var fabDay=isoList&&isoList.length?isoList[0]:isoDate(new Date());
     var fabMobile=(state.view==="calendario"&&!state.drawerOpen)?('<button class="ti-fab-mobile ti-press" data-act="fabnew" data-iso="'+fabDay+'" aria-label="Nuevo turno" data-noprint>'+IC.plus(24)+'</button>'):"";
-    var sidebar='<aside class="ti-sidebar" data-noprint><div class="ti-brand"><div class="ti-brand-mark"><div style="width:19px;height:19px;border-radius:50%;border:2.4px solid #fff;display:grid;place-items:center"><div style="width:6px;height:6px;border-radius:50%;background:#fff"></div></div></div><div><div class="ti-brand-kicker">THE ICE</div><div class="ti-brand-title">Producción</div></div></div>'+miniCalHtml()+'<div class="ti-navwrap" data-scroll><div class="ti-nav-label">Planificación</div>'+navItem("calendario","Calendario",IC.cal(18))+navItem("grupos","Grupos",IC.rows(18))+'<div class="ti-nav-label">Operación</div>'+navItem("inventario","Inventario",IC.box(18))+navItem("metas","Metas",IC.meta(18))+'<div class="ti-nav-label">Análisis</div>'+navItem("reportes","Reportes",IC.chart(18))+'<div class="ti-nav-label">Sistema</div>'+navItem("config","Configuración",IC.gear(18))+'</div><div class="ti-navfoot"><div style="font:700 10px \'Space Grotesk\';letter-spacing:.16em;color:var(--ti-nav-label,#5E747B)">DATOS AL</div><div style="margin-top:4px;font:600 13px \'IBM Plex Mono\';color:var(--ti-nav-text,#E2ECEF);font-variant-numeric:tabular-nums">'+todayStr+'</div></div></aside>';
+    var sidebar='<aside class="ti-sidebar" data-noprint><div class="ti-brand"><div class="ti-brand-mark"><div style="width:19px;height:19px;border-radius:50%;border:2.4px solid #fff;display:grid;place-items:center"><div style="width:6px;height:6px;border-radius:50%;background:#fff"></div></div></div><div><div class="ti-brand-kicker">THE ICE</div><div class="ti-brand-title">Producción</div></div></div>'+miniCalHtml()+'<div class="ti-navwrap" data-scroll><div class="ti-nav-label">Planificación</div>'+navItem("calendario","Calendario",IC.cal(18))+navItem("grupos","Planilla de pagos",IC.rows(18))+'<div class="ti-nav-label">Operación</div>'+navItem("inventario","Inventario",IC.box(18))+navItem("metas","Metas",IC.meta(18))+'<div class="ti-nav-label">Análisis</div>'+navItem("reportes","Reportes",IC.chart(18))+'<div class="ti-nav-label">Sistema</div>'+navItem("config","Configuración",IC.gear(18))+'</div><div class="ti-navfoot"><div style="font:700 10px \'Space Grotesk\';letter-spacing:.16em;color:var(--ti-nav-label,#5E747B)">DATOS AL</div><div style="margin-top:4px;font:600 13px \'IBM Plex Mono\';color:var(--ti-nav-text,#E2ECEF);font-variant-numeric:tabular-nums">'+todayStr+'</div></div></aside>';
 
     /* ---------- topbar ---------- */
     var themeMeta=[{key:"glaciar",label:"Glaciar",dot:"#0E8FD6"},{key:"vapor",label:"Vapor",dot:"#C6721E"},{key:"medianoche",label:"Medianoche",dot:"#38B2F2"}];
     var themeButtonsHtml=themeMeta.map(function(t){ var active=state.theme===t.key; var st="display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border-radius:9px;font:600 12.5px 'Space Grotesk';background:"+(active?"var(--ti-surface,#fff)":"transparent")+";color:"+(active?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+";box-shadow:"+(active?"0 2px 8px rgba(20,32,43,.12)":"none"); return '<button class="ti-hbtn ti-press" data-act="theme" data-theme="'+t.key+'" aria-pressed="'+active+'" title="Tema '+t.label+'" style="'+st+'"><span style="width:10px;height:10px;border-radius:50%;background:'+t.dot+';box-shadow:0 0 0 1.5px var(--ti-surface,#fff)"></span><span style="white-space:nowrap">'+t.label+'</span></button>'; }).join("");
     var weekNav='<div style="display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)"><button class="ti-hbtn ti-press" data-act="prevWeek" title="Semana anterior" aria-label="Semana anterior" style="width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--ti-text,#14202B)">'+IC.chevL()+'</button><button class="ti-hbtn ti-press" data-act="goToday" style="height:34px;padding:0 13px;border-radius:9px;font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">Hoy</button><button class="ti-hbtn ti-press" data-act="nextWeek" title="Semana siguiente" aria-label="Semana siguiente" style="width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--ti-text,#14202B)">'+IC.chevR()+'</button></div>';
-    var meta={calendario:["Operación / Calendario","Calendario de turnos"],grupos:["Planificación / Grupos","Vista de grupos"],inventario:["Operación / Inventario","Inventario"],metas:["Operación / Metas","Metas de producción"],reportes:["Análisis / Reportes","Reportes de producción"],config:["Sistema / Configuración","Configuración"]}[state.view];
+    var meta={calendario:["Operación / Calendario","Calendario de turnos"],grupos:["Planificación / Planilla de pagos","Planilla de pagos"],inventario:["Operación / Inventario","Inventario"],metas:["Operación / Metas","Metas de producción"],reportes:["Análisis / Reportes","Reportes de producción"],config:["Sistema / Configuración","Configuración"]}[state.view];
     var showWeek=state.view==="calendario"||state.view==="grupos"||state.view==="metas";
     var calToggle=""; if(state.view==="calendario"){ var cb=function(m,l){ var on=state.calMode===m; return '<button class="ti-hbtn ti-press" data-act="calmode" data-mode="'+m+'" aria-pressed="'+on+'" style="height:34px;padding:0 13px;border-radius:9px;font:600 12.5px \'Space Grotesk\';background:'+(on?"var(--ti-surface,#fff)":"transparent")+';color:'+(on?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+';box-shadow:'+(on?"0 2px 8px rgba(20,32,43,.12)":"none")+'">'+l+'</button>'; }; calToggle='<div style="display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)">'+cb("semana","Semana")+cb("mes","Mes")+'</div>'; }
     var monthLabel=new Date(state.monthMs).toLocaleDateString("es-CL",{month:"long",year:"numeric"});
@@ -1540,14 +1718,18 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     function grpAddBtn(g,label){ return '<button class="ti-ghost ti-press" data-act="addPerson" data-pg="'+g+'" style="margin-top:10px;display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 14px;border-radius:11px;border:1px dashed var(--ti-line,#cdd6df);color:var(--ti-text,#14202B);font:600 13px \'Space Grotesk\';background:var(--ti-surface2,#F3F6F9)">'+IC.plus(15)+label+'</button>'; }
     var barb='<span style="width:5px;height:14px;border-radius:3px;background:var(--ti-accent,#0E8FD6);display:block"></span>';
     var peopleSection;
+    var costBoxesHtml='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px">'+databox("Costo mano de obra","data-labor","$"+fmt(draftLabor()))+databox("Costo/kg estimado (meta)","data-cpk",draftCPK())+'</div>';
     if(d.type==="am"){
-      peopleSection='<div style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:4px;display:flex;align-items:center;gap:8px">'+stepBadge(2)+barb+'Personas del turno · '+(gcount(d.groupA)+gcount(d.groupB)+gcount(d.groupPT))+' en total</div><p style="margin:0 0 14px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">La producción y las metas son del turno AM completo. Aquí solo asignas los nombres de cada grupo.</p>'+
+      var draftPI=draftPresentInfo();
+      var draftPInote=draftPI.licencia?(' <span style="color:var(--ti-warn,#B26B00);font-weight:600">('+draftPI.licencia+' con licencia)</span>'):'';
+      peopleSection='<div style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:4px;display:flex;align-items:center;gap:8px">'+stepBadge(2)+barb+'Personas del turno · '+draftPI.total+' real'+draftPInote+'</div><p style="margin:0 0 14px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">La producción y las metas son del turno AM completo. Aquí solo asignas los nombres de cada grupo. Un ausente no cuenta en el total; con licencia sí cuenta, pero queda anotado.</p>'+
         '<div style="font:700 11.5px \'Space Grotesk\';color:'+th.types.a.bar+';display:flex;align-items:center;gap:7px;margin-bottom:8px"><span style="width:9px;height:9px;border-radius:3px;background:'+th.types.a.bar+'"></span>Grupo A · '+gcount(d.groupA)+'</div><div style="display:flex;flex-direction:column;gap:8px">'+peopleListHtml(d.groupA,"a")+'</div>'+grpAddBtn("a","Agregar a Grupo A")+
         '<div style="font:700 11.5px \'Space Grotesk\';color:'+th.types.b.bar+';display:flex;align-items:center;gap:7px;margin:18px 0 8px"><span style="width:9px;height:9px;border-radius:3px;background:'+th.types.b.bar+'"></span>Grupo B · '+gcount(d.groupB)+'</div><div style="display:flex;flex-direction:column;gap:8px">'+peopleListHtml(d.groupB,"b")+'</div>'+grpAddBtn("b","Agregar a Grupo B")+
         '<div style="font:700 11.5px \'Space Grotesk\';color:'+th.types.custom.bar+';display:flex;align-items:center;gap:7px;margin:18px 0 8px"><span style="width:9px;height:9px;border-radius:3px;background:'+th.types.custom.bar+'"></span>Part-times · '+gcount(d.groupPT)+'</div><p style="margin:0 0 8px;font:500 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">No quedan en Grupo A ni B, pero cuentan igual para personas, costo y asistencia del turno.</p><div style="display:flex;flex-direction:column;gap:8px">'+peopleListHtml(d.groupPT,"pt")+'</div>'+grpAddBtn("pt","Agregar part-time")+
+        costBoxesHtml+
       '</div>';
     } else {
-      peopleSection='<div style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:13px;display:flex;align-items:center;gap:8px">'+stepBadge(2)+barb+'Personas del turno</div><div style="display:flex;flex-direction:column;gap:8px">'+peopleListHtml(d.people,"")+'</div>'+grpAddBtn("","Agregar persona")+'</div>';
+      peopleSection='<div style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:13px;display:flex;align-items:center;gap:8px">'+stepBadge(2)+barb+'Personas del turno</div><div style="display:flex;flex-direction:column;gap:8px">'+peopleListHtml(d.people,"")+'</div>'+grpAddBtn("","Agregar persona")+costBoxesHtml+'</div>';
     }
     function databox(label,valAttr,val){ return '<div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">'+label+'</label><div '+valAttr+' style="height:44px;display:flex;align-items:center;padding:0 13px;border-radius:11px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line2,#E8EDF2);color:var(--ti-text,#14202B);font:600 15px \'IBM Plex Mono\';font-variant-numeric:tabular-nums">'+val+'</div></div>'; }
     var mkD=draftMetaKg(), mmD=draftMetaMesh();
@@ -1558,7 +1740,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       var iniRows=d.products.map(function(p,idx){ var v=(d.invInicial&&d.invInicial[idx])||{mesh:"",kg:""}; var f=kgMalla(p.product); var kgRO=f>0?" readonly":ro; return '<div style="display:grid;grid-template-columns:1fr 76px 76px;gap:7px;align-items:center"><span style="font:500 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product)+'</span><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(v.mesh)+'" data-invini-idx="'+idx+'" data-invini-f="mesh" placeholder="mallas"'+ro+'><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(v.kg)+'" data-invini-idx="'+idx+'" data-invini-f="kg" data-invinikgof="'+idx+'" placeholder="kg"'+kgRO+'></div>'; }).join("");
       function saco20Row(tag,val){ return '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--ti-line,#cdd6df)"><div style="display:grid;grid-template-columns:1fr 76px 76px;gap:7px;align-items:center"><span style="font:600 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">Saco 20 kg</span><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(val.sacos)+'" data-saco20-tag="'+tag+'" data-saco20-f="sacos" placeholder="sacos"'+ro+'><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(val.kg)+'" data-saco20-tag="'+tag+'" data-saco20-f="kg" data-saco20-kgof="'+tag+'" placeholder="kg" readonly></div><p style="margin:5px 0 0;font:500 10.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">Materia prima · kg disponibles para producción.</p></div>'; }
       var ini20=d.invInicial20||{sacos:"",kg:""}, fin20=d.invFinal20||{sacos:"",kg:""};
-      invIniHtml='<div style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="border-radius:14px;background:var(--ti-accent-soft,#E4F2FB);border:1px solid var(--ti-accent,#0E8FD6);padding:15px 16px"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:5px;display:flex;align-items:center;gap:8px">'+stepBadge(4)+'<span style="width:5px;height:14px;border-radius:3px;background:var(--ti-accent,#0E8FD6);display:block"></span>Inventario inicial del turno</div><p style="margin:0 0 12px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Cuenta las mallas que había de cada producto <b>al empezar</b> el turno — los kilos se calculan solos.</p>'+invRowsHead+'<div style="display:flex;flex-direction:column;gap:7px">'+iniRows+'</div>'+saco20Row("ini",ini20)+'</div></div>';
+      invIniHtml='<div style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="border-radius:14px;background:var(--ti-accent-soft,#E4F2FB);border:1px solid var(--ti-accent,#0E8FD6);padding:15px 16px"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);display:flex;align-items:center;gap:8px">'+stepBadge(3)+'<span style="width:5px;height:14px;border-radius:3px;background:var(--ti-accent,#0E8FD6);display:block"></span>Inventario inicial del turno</div><button class="ti-ghost ti-press" data-act="pullPrevInv" title="Vuelve a traer el inventario final del turno anterior, por si quedó desactualizado" style="display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 11px;border-radius:9px;border:1px solid var(--ti-accent,#0E8FD6);background:var(--ti-surface,#fff);color:var(--ti-accent,#0E8FD6);font:600 11.5px \'Space Grotesk\';white-space:nowrap">'+IC.refresh(14)+'Traer del turno anterior</button></div><p style="margin:0 0 12px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Cuenta las mallas que había de cada producto <b>al empezar</b> el turno — los kilos se calculan solos.</p>'+invRowsHead+'<div style="display:flex;flex-direction:column;gap:7px">'+iniRows+'</div>'+saco20Row("ini",ini20)+'</div></div>';
 
       /* ---- salidas del día, embebidas en el turno con el MISMO estilo que Inventario:
          una fila por producto del turno, mismo header de columnas (invRowsHead) ---- */
@@ -1568,7 +1750,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var f=kgMalla(p.product); var kgRO=f>0?" readonly":"";
         return '<div style="display:grid;grid-template-columns:1fr 76px 76px;gap:7px;align-items:center"><span style="font:500 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product)+'</span><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(v.mesh)+'" data-salrow-idx="'+idx+'" data-salrow-f="mesh" placeholder="mallas"><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(v.kg)+'" data-salrow-idx="'+idx+'" data-salrow-f="kg" data-salrowkgof="'+idx+'" placeholder="kg"'+kgRO+'></div>';
       }).join("");
-      var salidasHtml='<div style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:5px;display:flex;align-items:center;gap:8px">'+stepBadge(5)+barb+'Salidas del día</div><p style="margin:0 0 12px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Lo que salió de cada producto en '+esc(d.day)+' — los kilos se calculan solos. Se descuenta del cierre para calcular la producción real; se guarda al salir del campo, sin botón aparte.</p>'+
+      var salidasHtml='<div style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:5px;display:flex;align-items:center;gap:8px">'+stepBadge(4)+barb+'Salidas del día</div><p style="margin:0 0 12px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Lo que salió de cada producto en '+esc(d.day)+' — los kilos se calculan solos. Se descuenta del cierre para calcular la producción real; se guarda al salir del campo, sin botón aparte.</p>'+
         '<div style="padding:13px 14px;border:1px dashed var(--ti-line,#cdd6df);border-radius:12px;background:var(--ti-surface2,#F3F6F9)">'+invRowsHead+'<div style="display:flex;flex-direction:column;gap:7px">'+salRowsHtml+'</div></div>'+
       '</div>';
       var realRows=d.products.map(function(p,idx){ var r=draftComputedReal(idx); var kgTxt=r?fmt(Math.round(r.kg)):"—"; var meshTxt=(r&&r.mesh!=null)?fmt1(r.mesh):"—"; return '<div style="display:grid;grid-template-columns:1fr 84px 84px;gap:8px;align-items:center"><span style="font:500 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product)+'</span><span data-realout-mesh="'+idx+'" style="height:38px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line2,#E8EDF2);color:var(--ti-muted,#647787);font:600 13px \'IBM Plex Mono\'">'+meshTxt+'</span><span data-realout-kg="'+idx+'" style="height:38px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line2,#E8EDF2);color:var(--ti-text,#14202B);font:600 13px \'IBM Plex Mono\'">'+kgTxt+'</span></div>'; }).join("");
@@ -1585,7 +1767,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         '</div></div>';
       }).join("");
       var attHtml=attNames.length?('<div style="margin-top:16px;padding:13px 14px;border:1px dashed var(--ti-line,#cdd6df);border-radius:12px;background:var(--ti-surface2,#F3F6F9)"><div style="display:flex;align-items:center;gap:8px;margin-bottom:2px"><span style="color:var(--ti-muted,#647787);display:flex">'+IC.check(15)+'</span><span style="font:700 12px \'Space Grotesk\';color:var(--ti-text,#14202B)">Asistencia</span></div><p style="margin:0 0 4px;font:500 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">Con licencia igual se paga. Ausente sin licencia no se cuenta en el costo de mano de obra.</p>'+attRows+'</div>'):"";
-      realHtml='<div data-real style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);display:flex;align-items:center;gap:8px">'+stepBadge(6)+'<span style="width:5px;height:14px;border-radius:3px;background:var(--ti-ok,#12A150);display:block"></span>Cierre de turno · Producción real (calculada)</div>'+(closed?'<span style="display:inline-flex;align-items:center;gap:5px;font:600 11px \'Space Grotesk\';color:var(--ti-ok,#12A150);background:var(--ti-ok-soft,#E4F5EC);padding:4px 9px;border-radius:8px">'+IC.lock(12)+'Fijado</span>':'')+'</div><p style="margin:0 0 13px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+(closed?"Producción registrada y fijada. Reábrelo para corregir.":"Se calcula sola: <b>Inventario final − Inventario inicial + Salidas</b>. No se anota a mano.")+'</p>'+
+      realHtml='<div data-real style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);display:flex;align-items:center;gap:8px">'+stepBadge(5)+'<span style="width:5px;height:14px;border-radius:3px;background:var(--ti-ok,#12A150);display:block"></span>Cierre de turno · Producción real (calculada)</div>'+(closed?'<span style="display:inline-flex;align-items:center;gap:5px;font:600 11px \'Space Grotesk\';color:var(--ti-ok,#12A150);background:var(--ti-ok-soft,#E4F5EC);padding:4px 9px;border-radius:8px">'+IC.lock(12)+'Fijado</span>':'')+'</div><p style="margin:0 0 13px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+(closed?"Producción registrada y fijada. Reábrelo para corregir.":"Se calcula sola: <b>Inventario final − Inventario inicial + Salidas</b>. No se anota a mano.")+'</p>'+
         invCloseHtml+
         '<div style="margin-top:14px;display:grid;grid-template-columns:1fr 84px 84px;gap:8px;margin-bottom:8px"><span style="font:700 10px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:var(--ti-muted,#647787)">Producto</span><span style="font:700 10px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:var(--ti-muted,#647787);text-align:center">Mallas</span><span style="font:700 10px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:var(--ti-muted,#647787);text-align:center">Kilos</span></div>'+
         '<div style="display:flex;flex-direction:column;gap:8px">'+realRows+'</div>'+
@@ -1601,13 +1783,12 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var dupBtn=editing?'<button class="ti-ghost ti-press" data-act="duplicate" title="Copia este turno (horario, gente, metas) al día siguiente" style="display:inline-flex;align-items:center;gap:7px;height:42px;padding:0 15px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface2,#F3F6F9);color:var(--ti-text,#14202B);font:600 13.5px \'Space Grotesk\'">'+IC.copy(16)+'Duplicar a mañana</button>':'';
     var drawer='<div data-act="close" style="'+backdropStyle+'"></div><aside role="dialog" aria-modal="true" aria-label="'+(editing?"Editar turno":"Nuevo turno")+'" style="'+drawerStyle+'"><div style="padding:19px 22px;border-bottom:1px solid var(--ti-line,#DCE3EA);display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex:none"><div><div style="font:600 11px \'Space Grotesk\';letter-spacing:.14em;text-transform:uppercase;color:var(--ti-accent,#0E8FD6)">'+(editing?"Editar":"Crear")+'</div><h2 style="margin:6px 0 0;font:700 21px \'Space Grotesk\';letter-spacing:-.02em;color:var(--ti-text,#14202B)">'+(editing?"Editar turno":"Nuevo turno")+'</h2><p style="margin:5px 0 0;font:500 12.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">Horario, dotación, productos, costos y metas.</p></div><button class="ti-close ti-press" data-act="close" title="Cerrar" aria-label="Cerrar panel" style="width:38px;height:38px;flex:none;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface2,#F3F6F9);color:var(--ti-muted,#647787);display:grid;place-items:center">'+IC.close()+'</button></div>'+
       '<div data-scroll data-scroll-id="drawer" style="overflow:auto;padding:20px 22px 26px;flex:1">'+rosterDatalist+
-        '<div style="margin-bottom:22px"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:13px;display:flex;align-items:center;gap:8px">'+stepBadge(1)+barb+'Información general</div><div style="display:grid;gap:12px"><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Título del turno</label><input value="'+esc(d.title)+'" data-f="title" placeholder="Ej: Grupo A · extensión"></div><div><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70);display:block;margin-bottom:8px">Tipo de bloque</label><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px">'+typeOptionsHtml+'</div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Día</label><select data-f="day">'+dayOptionsHtml+'</select></div><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Tipo de producción</label><select data-f="prodType">'+prodTypeOpt("normal","Producción normal")+prodTypeOpt("hiper","Hiperproducción")+'</select></div><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Hora inicio</label><input type="time" value="'+esc(d.start)+'" data-f="start"></div><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Hora término</label><input type="time" value="'+esc(d.end)+'" data-f="end"></div><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">¿Máquina produciendo?</label><select data-f="maquina">'+maquinaOpt("si","Sí")+maquinaOpt("no","No")+'</select></div>'+overnightHint+'</div></div></div>'+
+        '<div style="margin-bottom:22px"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:13px;display:flex;align-items:center;gap:8px">'+stepBadge(1)+barb+'Información general</div><div style="display:grid;gap:12px"><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Título del turno</label><input value="'+esc(d.title)+'" data-f="title" placeholder="Ej: Grupo A · extensión"></div><div><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70);display:block;margin-bottom:8px">Tipo de bloque</label><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px">'+typeOptionsHtml+'</div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Día</label><select data-f="day">'+dayOptionsHtml+'</select></div><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Tipo de producción</label><select data-f="prodType">'+prodTypeOpt("normal","Producción normal")+prodTypeOpt("hiper","Hiperproducción")+'</select></div><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Hora inicio</label><input type="time" value="'+esc(d.start)+'" data-f="start"></div><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Hora término</label><input type="time" value="'+esc(d.end)+'" data-f="end"></div><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">¿Máquina produciendo?</label><select data-f="maquina">'+maquinaOpt("si","Sí")+maquinaOpt("no","No")+'</select></div><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Merma objetivo (%)</label><input type="number" min="0" max="100" step="0.1" inputmode="decimal" value="'+esc(d.wasteTarget)+'" data-f="wasteTarget"></div>'+overnightHint+'</div></div></div>'+
         peopleSection+
-        '<div style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:5px;display:flex;align-items:center;gap:8px">'+stepBadge(3)+barb+'Metas del turno</div><p style="margin:0 0 12px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Anota las mallas objetivo y los kilos se calculan solos (Original/Mini 3 kg: 15 kg/malla · Retail: 12 kg/malla).</p>'+productsHead+'<div style="display:flex;flex-direction:column;gap:8px">'+productsHtml+'</div><button class="ti-ghost ti-press" data-act="addProduct" style="margin-top:10px;display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 14px;border-radius:11px;border:1px dashed var(--ti-line,#cdd6df);color:var(--ti-text,#14202B);font:600 13px \'Space Grotesk\';background:var(--ti-surface2,#F3F6F9)">'+IC.plus(15)+'Agregar producto</button><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px"><div style="display:flex;flex-direction:column;gap:6px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Merma objetivo (%)</label><input type="number" min="0" max="100" step="0.1" inputmode="decimal" value="'+esc(d.wasteTarget)+'" data-f="wasteTarget"></div>'+databox("Kilos meta (total)","data-kgtotal",fmt(mkD)+" kg")+'</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">'+databox("Costo mano de obra","data-labor","$"+fmt(draftLabor()))+databox("Costo/kg estimado (meta)","data-cpk",draftCPK())+'</div></div>'+
         invIniHtml+
         salidasHtml+
         realHtml+
-        '<div style="padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:13px;display:flex;align-items:center;gap:8px">'+stepBadge(7)+barb+'Notas</div><textarea data-f="notes" placeholder="Ej: extensión de turno, apoyo especial, registrar merma real.">'+esc(d.notes)+'</textarea></div>'+
+        '<div style="padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:13px;display:flex;align-items:center;gap:8px">'+stepBadge(6)+barb+'Notas</div><textarea data-f="notes" placeholder="Ej: extensión de turno, apoyo especial, registrar merma real.">'+esc(d.notes)+'</textarea></div>'+
       '</div>'+
       '<div style="border-top:1px solid var(--ti-line,#DCE3EA);padding:14px 20px;display:flex;gap:10px;align-items:center;background:var(--ti-surface,#fff);flex:none">'+deleteBtn+dupBtn+'<div style="display:flex;gap:10px;margin-left:auto"><button class="ti-close ti-press" data-act="close" style="height:42px;padding:0 16px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13.5px \'Space Grotesk\'">Cancelar</button><button class="ti-primary ti-press" data-act="save" style="height:42px;padding:0 20px;border-radius:11px;background:var(--ti-accent,#0E8FD6);color:var(--ti-accent-ink,#fff);font:600 13.5px \'Space Grotesk\';box-shadow:0 8px 20px var(--ti-accentshadow,rgba(14,143,214,.32))">Guardar turno</button></div></div></aside>';
 
@@ -1657,6 +1838,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(act==="save") saveShift();
     else if(act==="delete") deleteShift();
     else if(act==="duplicate") duplicateShiftToNextDay();
+    else if(act==="pullPrevInv") pullPrevInv();
     else if(act==="invAdd") invAdd();
     else if(act==="invDelete") invDelete(btn.getAttribute("data-id"));
     else if(act==="salAdd") salAdd();
@@ -1685,7 +1867,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   root.addEventListener("dblclick",function(e){ var col=e.target.closest("[data-daycol]"); if(!col) return; if(e.target.closest("[data-card-id]")||e.target.closest("[data-combo-ids]")) return; onColDbl(col,e); });
   root.addEventListener("mousedown",function(e){ var handle=e.target.closest("[data-resize-id]"); if(handle){ onResizeDown(handle.getAttribute("data-resize-id"),e); return; } var card=e.target.closest("[data-card-id]"); if(card){ onCardDown(card.getAttribute("data-card-id"),e); } });
   root.addEventListener("input",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-person-idx")){ var pg=t.getAttribute("data-person-group")||""; var pk=pkey(pg); state.draft[pk][+t.getAttribute("data-person-idx")]=t.value; updateComputed(); } else if(t.hasAttribute("data-invini-idx")){ var vi=+t.getAttribute("data-invini-idx"); var vif=t.getAttribute("data-invini-f"); if(!state.draft.invInicial) state.draft.invInicial=[]; if(!state.draft.invInicial[vi]) state.draft.invInicial[vi]={mesh:"",kg:""}; state.draft.invInicial[vi][vif]=t.value; if(vif==="mesh") autoKgInvIni(vi); updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="mesh") autoKgProd(pi); updateComputed(); } else if(t.hasAttribute("data-invclose-idx")){ var ii=+t.getAttribute("data-invclose-idx"); var iif=t.getAttribute("data-invclose-f"); if(!state.draft.invCounts) state.draft.invCounts=[]; if(!state.draft.invCounts[ii]) state.draft.invCounts[ii]={mesh:"",kg:""}; state.draft.invCounts[ii][iif]=t.value; if(iif==="mesh") autoKgInvFinal(ii); updateComputed(); } else if(t.hasAttribute("data-saco20-tag")){ var s20tag=t.getAttribute("data-saco20-tag"); var s20f=t.getAttribute("data-saco20-f"); var s20key=s20tag==="ini"?"invInicial20":"invFinal20"; if(!state.draft[s20key]) state.draft[s20key]={sacos:"",kg:""}; state.draft[s20key][s20f]=t.value; if(s20f==="sacos") autoKgSaco20(s20tag); updateComputed(); } else if(t.hasAttribute("data-cfg-prod")){ config.bagStock[t.getAttribute("data-cfg-prod")]=t.value; } else if(t.hasAttribute("data-cfg-num")){ config[t.getAttribute("data-cfg-num")]=t.value; } else if(t.hasAttribute("data-cfg-list")){ var lk=t.getAttribute("data-cfg-list"); var cf=lk==="roster"?"roster":(lk==="defA"?"defaultGroupA":"defaultGroupB"); if(!config[cf])config[cf]=[]; config[cf][+t.getAttribute("data-cfg-idx")]=t.value; } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="mesh"){ var fac=kgMalla(state.invDraft.product); if(fac>0){ state.invDraft.qty=(t.value===""?"":String(Number(t.value||0)*fac)); var qe=root.querySelector('[data-inv-f="qty"]'); if(qe){ qe.value=state.invDraft.qty; qe.readOnly=true; } } } } else if(t.hasAttribute("data-salrow-idx")){ var sri=+t.getAttribute("data-salrow-idx"); var srf=t.getAttribute("data-salrow-f"); if(!state.draft.salidasCount) state.draft.salidasCount=[]; if(!state.draft.salidasCount[sri]) state.draft.salidasCount[sri]={mesh:"",kg:""}; state.draft.salidasCount[sri][srf]=t.value; if(srf==="mesh") autoKgSalRow(sri); updateComputed(); } else if(t.hasAttribute("data-metaquick-f")){ if(!state.metaQuick) state.metaQuick={product:activeProducts()[0]||"Original 3 kg",mesh:"",kg:""}; var mqf=t.getAttribute("data-metaquick-f"); state.metaQuick[mqf]=t.value; if(mqf==="mesh"){ var mqfac=kgMalla(state.metaQuick.product); if(mqfac>0){ state.metaQuick.kg=(t.value===""?"":String(Number(t.value||0)*mqfac)); var mqke=root.querySelector('[data-metaquick-f="kg"]'); if(mqke){ mqke.value=state.metaQuick.kg; mqke.readOnly=true; } } } else if(mqf==="product"){ render(); } } else if(t.hasAttribute("data-metaday-iso")){ var mdIso=t.getAttribute("data-metaday-iso"), mdProd=t.getAttribute("data-metaday-product"), mdF=t.getAttribute("data-metaday-f"); if(mdF==="mesh"){ var mdFac=kgMalla(mdProd); if(mdFac>0){ var kgv=(t.value===""?"":String(Number(t.value||0)*mdFac)); var kgEl=root.querySelector('[data-metadaykgof="'+mdIso+'|'+mdProd+'"]'); if(kgEl){ kgEl.value=kgv; kgEl.readOnly=true; } } } } else if(t.hasAttribute("data-sal-f")){ var sf=t.getAttribute("data-sal-f"); state.salDraft[sf]=t.value; if(sf==="mesh"){ var sfac=kgMalla(state.salDraft.product); if(sfac>0){ state.salDraft.kg=(t.value===""?"":String(Number(t.value||0)*sfac)); var ske=root.querySelector('[data-sal-f="kg"]'); if(ske){ ske.value=state.salDraft.kg; ske.readOnly=true; } } } } else if(t.hasAttribute("data-payr-name")){ autoPayRow(t.getAttribute("data-payr-name")); } else if(t.hasAttribute("data-payx-name")){ autoPayRow(t.getAttribute("data-payx-name")); } });
-  root.addEventListener("blur",function(e){ var t=e.target; if(!t||!t.hasAttribute) return; if(t.hasAttribute("data-salrow-idx")) salRowCommit(+t.getAttribute("data-salrow-idx")); else if(t.hasAttribute("data-payr-name")) payRateCommit(t.getAttribute("data-payr-name")); else if(t.hasAttribute("data-payx-name")) payExtraCommit(t.getAttribute("data-payx-name")); else if(t.hasAttribute("data-metaday-iso")){ var miso=t.getAttribute("data-metaday-iso"), mprod=t.getAttribute("data-metaday-product"); var meshEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="mesh"]'); var kgEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="kg"]'); var meshV=meshEl?meshEl.value:""; var kgV=kgEl?kgEl.value:""; var kgN=(kgV!==""&&!isNaN(Number(kgV)))?Number(kgV):0; var meshN=(meshV!==""&&!isNaN(Number(meshV)))?Number(meshV):null; metaCommit(miso,mprod,kgN,meshN); render(); } },true);
+  root.addEventListener("blur",function(e){ var t=e.target; if(!t||!t.hasAttribute) return; if(t.hasAttribute("data-salrow-idx")) salRowCommit(+t.getAttribute("data-salrow-idx")); else if(t.hasAttribute("data-payr-name")) payRateCommit(t.getAttribute("data-payr-name")); else if(t.hasAttribute("data-payx-name")) payExtraCommit(t.getAttribute("data-payx-name")); else if(t.hasAttribute("data-extrahours-key")) extraHoursPersonCommit(t.getAttribute("data-extrahours-key")); else if(t.hasAttribute("data-metaday-iso")){ var miso=t.getAttribute("data-metaday-iso"), mprod=t.getAttribute("data-metaday-product"); var meshEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="mesh"]'); var kgEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="kg"]'); var meshV=meshEl?meshEl.value:""; var kgV=kgEl?kgEl.value:""; var kgN=(kgV!==""&&!isNaN(Number(kgV)))?Number(kgV):0; var meshN=(meshV!==""&&!isNaN(Number(meshV)))?Number(meshV):null; metaCommit(miso,mprod,kgN,meshN); render(); } },true);
   root.addEventListener("change",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="product"){ autoKgProd(pi); render(); } else { if(pf==="mesh") autoKgProd(pi); updateComputed(); } } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="date"||iff==="shiftId"||iff==="product") render(); } else if(t.hasAttribute("data-sal-f")){ var slf=t.getAttribute("data-sal-f"); state.salDraft[slf]=t.value; if(slf==="date"||slf==="product") render(); } else if(t.hasAttribute("data-rep-f")){ var rff=t.getAttribute("data-rep-f"); if(rff==="from") state.repFrom=t.value; else if(rff==="to") state.repTo=t.value; else if(rff==="altaDemanda") state.repAltaDemandaTon=Number(t.value||30); render(); } });
   document.addEventListener("keydown",function(e){ if(e.key==="Escape"){ if(state.daySummaryIso){ state.daySummaryIso=null; render(); } else if(state.chooser) closeChooser(); else if(state.drawerOpen) closeDrawer(); } });
   setInterval(function(){ state.nowMs=Date.now(); render(); },60000);
