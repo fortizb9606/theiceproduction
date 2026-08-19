@@ -82,8 +82,12 @@ async function boot() {
   gate.onLogin(doLogin);
   gate.onLogout(() => signOut(auth));
 
-  /* ---- sync en tiempo real ---- */
-  const COLS = { shifts: "shifts", inventory: "inventory", salidas: "salidas", metas: "metas" };
+  /* ---- sync en tiempo real ----
+     ocBolsas/retirosBolsas/comprasMalla/comprasGuantes/conteosGuantes agregadas
+     (19-ago-2026) — sistema de Compras (bolsas por OC, malla, guantes). */
+  const COLS = { shifts: "shifts", inventory: "inventory", salidas: "salidas", metas: "metas",
+                 ocBolsas: "ocBolsas", retirosBolsas: "retirosBolsas", comprasMalla: "comprasMalla",
+                 comprasGuantes: "comprasGuantes", conteosGuantes: "conteosGuantes" };
 
   function startSync(user) {
     window.TICloud = {
@@ -124,6 +128,11 @@ async function boot() {
     onSnapshot(collection(db, "inventory"), s => apply("inventory", s.docs.map(d => d.data())),  e => console.error("[TISync] inventory", e));
     onSnapshot(collection(db, "salidas"),   s => apply("salidas",   s.docs.map(d => d.data())),  e => console.error("[TISync] salidas", e));
     onSnapshot(collection(db, "metas"),     s => apply("metas",     s.docs.map(d => d.data())),  e => console.error("[TISync] metas", e));
+    onSnapshot(collection(db, "ocBolsas"),        s => apply("ocBolsas",        s.docs.map(d => d.data())),  e => console.error("[TISync] ocBolsas", e));
+    onSnapshot(collection(db, "retirosBolsas"),   s => apply("retirosBolsas",   s.docs.map(d => d.data())),  e => console.error("[TISync] retirosBolsas", e));
+    onSnapshot(collection(db, "comprasMalla"),    s => apply("comprasMalla",    s.docs.map(d => d.data())),  e => console.error("[TISync] comprasMalla", e));
+    onSnapshot(collection(db, "comprasGuantes"),  s => apply("comprasGuantes",  s.docs.map(d => d.data())),  e => console.error("[TISync] comprasGuantes", e));
+    onSnapshot(collection(db, "conteosGuantes"),  s => apply("conteosGuantes",  s.docs.map(d => d.data())),  e => console.error("[TISync] conteosGuantes", e));
     onSnapshot(doc(db, "config", "main"),   d => { if (d.exists()) apply("config", d.data()); });
     onSnapshot(doc(db, "meta", "generatedWeeks"), d => apply("gen", d.exists() ? (d.data().weeks || []) : []));
 
@@ -139,6 +148,11 @@ async function boot() {
         shifts.forEach(s => window.TICloud.set("shifts", s));
         (local("inventory") || []).forEach(e => window.TICloud.set("inventory", e));
         (local("metas") || []).forEach(e => window.TICloud.set("metas", e));
+        (local("ocBolsas") || []).forEach(e => window.TICloud.set("ocBolsas", e));
+        (local("retirosBolsas") || []).forEach(e => window.TICloud.set("retirosBolsas", e));
+        (local("comprasMalla") || []).forEach(e => window.TICloud.set("comprasMalla", e));
+        (local("comprasGuantes") || []).forEach(e => window.TICloud.set("comprasGuantes", e));
+        (local("conteosGuantes") || []).forEach(e => window.TICloud.set("conteosGuantes", e));
         const cfg = local("config"); if (cfg) window.TICloud.set("config", cfg);
         const gen = local("gen"); if (gen) window.TICloud.set("gen", gen);
         console.info("[TISync] Datos locales migrados a la nube.");
