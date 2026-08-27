@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-19-modulo-compras-bolsas-malla-guantes -->
+<!-- BUILD-MARK: 2026-08-27-vie-largo-sab-corto -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -252,13 +252,12 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   var ANCHOR_MS=(function(){ var d=new Date(2026,6,27); d.setHours(0,0,0,0); return d.getTime(); })();
   var GRUPO_A_NAMES=["Nicole Iglesia","Santiago Valderrama","Kevin Giraldo",""]; // Grupo A = 4
   var GRUPO_B_NAMES=["","",""];                                                  // Grupo B = 3 (pendientes)
-  // turnos editables del calendario: Lun-Jue = 1 Turno AM de todo el equipo; Vie/Sáb escalonados
+  // turnos editables del calendario: Lun-Vie = 1 Turno AM de todo el equipo 07:00-16:00;
+  // Sábado = 1 solo turno corto 08:30-12:30, mismo equipo full time
+  // (27-ago-2026: se dejó de separar Vie/Sáb en dos grupos escalonados A y B)
   var TEMPLATE=[
-    {group:"am", days:[0,1,2,3], start:"07:00", end:"16:00", title:"Turno AM"},
-    {group:"a",  days:[4],       start:"07:00", end:"13:00", title:"Grupo A"},
-    {group:"b",  days:[4],       start:"10:00", end:"16:00", title:"Grupo B"},
-    {group:"a",  days:[5],       start:"10:00", end:"16:00", title:"Grupo A"},
-    {group:"b",  days:[5],       start:"08:00", end:"14:00", title:"Grupo B"},
+    {group:"am", days:[0,1,2,3,4], start:"07:00", end:"16:00", title:"Turno AM"},
+    {group:"am", days:[5],         start:"08:30", end:"12:30", title:"Turno AM"},
     {group:"night", days:[0,1,2,3], start:"22:00", end:"06:30", title:"Turno Noche"}
   ];
   // patrón fijo de referencia para la vista Grupos (A y B toda la semana)
@@ -272,6 +271,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   var IC={
     chevL:function(){return svg('<path d="M15 18l-6-6 6-6"/>',17,2.3);},
     chevR:function(){return svg('<path d="M9 6l6 6-6 6"/>',17,2.3);},
+    chevDown:function(s){return svg('<path d="M6 9l6 6 6-6"/>',s||17,2.3);},
     plus:function(s){return svg('<path d="M12 5v14M5 12h14"/>',s||17,2.2);},
     copy:function(s){return svg('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',s||17,1.9);},
     refresh:function(s){return svg('<path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/>',s||17,2);},
@@ -743,6 +743,81 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     state.editingId=id; state.drawerOpen=true; state.chooser=null; render();
   }
   function openPending(id){ var s=findShift(id); if(!s) return; state.weekStartMs=getMonday(new Date(s.date+"T00:00:00")).getTime(); ensureWeek(state.weekStartMs); state.scrollReal=true; openEdit(id); }
+  function isFelipe(){ try{ return !!(window.TICloud && window.TICloud.user && (window.TICloud.user.email||"").toLowerCase()==="felipe@theice.cl"); }catch(e){ return false; } }
+  function openQuickInv(id){
+    if(state.quickEditId===id){ state.quickEditId=null; state.quickDraft=null; render(); return; }
+    var s=findShift(id); if(!s) return;
+    if(s.registroDraft){
+      state.quickDraft=JSON.parse(JSON.stringify(s.registroDraft));
+    } else {
+      var rosterOficial=s.type==="am"?rosterNames((s.groupA||[]).concat(s.groupB||[]).concat(s.groupPT||[])):rosterNames(s.people||[]);
+      var attOficial={}; rosterOficial.forEach(function(n){ attOficial[n]=(s.attendance&&s.attendance[n])||"presente"; });
+      var invIniPrefill=(s.invInicial&&s.invInicial.length)?s.invInicial.slice():(function(){
+        var prev=findPrevShiftFor(s.date,s.start);
+        if(!prev||!prev.invFinal) return [];
+        return (s.products||[]).map(function(p){ var kg=invLookup(prev.invFinal,p.product); return kg!==""?{product:p.product,kg:kg}:null; }).filter(Boolean);
+      })();
+      state.quickDraft={names:rosterOficial.slice(),attendance:attOficial,invInicial:invIniPrefill,invFinal:(s.invFinal||[]).slice(),noHubo:false};
+    }
+    state.quickEditId=id; render();
+  }
+  function closeQuickInv(){ state.quickEditId=null; state.quickDraft=null; render(); }
+  function toggleQuickAttendance(name){ state.quickDraft.attendance[name]=(state.quickDraft.attendance[name]==="ausente")?"presente":"ausente"; render(); }
+  function quickAddName(){
+    var qd=state.quickDraft;
+    var name=(state.quickNameDraft||"").trim();
+    if(!name) return;
+    if(qd.names.indexOf(name)>=0){ state.quickNameDraft=""; render(); return; }
+    qd.names.push(name); qd.attendance[name]="presente";
+    state.quickNameDraft=""; render();
+  }
+  function removeQuickName(name){ var qd=state.quickDraft; qd.names=qd.names.filter(function(n){return n!==name;}); delete qd.attendance[name]; render(); }
+  function saveQuickDraft(){
+    var id=state.quickEditId; var s=findShift(id); if(!s) return;
+    s.registroDraft=JSON.parse(JSON.stringify(state.quickDraft));
+    persist(); cloudSet('shifts',s); render();
+  }
+  function markNoHubo(){
+    if(!confirm("¿Este turno no se trabajó? Cuando lo apruebes va a quedar con 0 kg de producción, sin importar el inventario o las salidas del día. El inventario sigue igual que el turno anterior, no se pierde.")) return;
+    var qd=state.quickDraft;
+    qd.invFinal=qd.invInicial.slice();
+    qd.noHubo=true;
+    saveQuickDraft();
+  }
+  function approveRegistro(){
+    var id=state.quickEditId; var s=findShift(id); var qd=state.quickDraft; if(!s||!qd) return;
+    if(!confirm("¿Llevar esto a la tarjeta real del Calendario? Se recalcula la producción del turno con estos datos.")) return;
+    openEdit(id);
+    var d=state.draft;
+    if(d.type==="am"){ var existentes=rosterNames(d.groupA.concat(d.groupB).concat(d.groupPT||[])); qd.names.forEach(function(n){ if(existentes.indexOf(n)<0) d.groupA.push(n); }); }
+    else { qd.names.forEach(function(n){ if(d.people.indexOf(n)<0) d.people.push(n); }); }
+    d.attendance=d.attendance||{}; Object.keys(qd.attendance).forEach(function(n){ d.attendance[n]=qd.attendance[n]; });
+    d.invInicial=qd.invInicial.slice();
+    d.invCounts=qd.invFinal.slice();
+    if(qd.noHubo){
+      var obj=buildShift();
+      obj.realByProduct=obj.products.map(function(){ return {kg:0,mesh:0}; });
+      obj.kgReal=0; obj.meshReal=0; obj.closed=true;
+      commit(obj); state.drawerOpen=false; render();
+    } else {
+      closeShift();
+    }
+    state.quickEditId=null; state.quickDraft=null; render();
+  }
+  function quickAddShift(){
+    var qd=state.quickAddDraft||{};
+    if(!qd.start||!qd.end){ alert("Completa la hora de inicio y de término."); return; }
+    if(parseTime(qd.end)===parseTime(qd.start)){ alert("La hora de término no puede ser igual a la de inicio."); return; }
+    var ps=activeProducts().map(function(p){ return {product:p,kg:"",mesh:""}; });
+    applyMetaPrefillToProducts(ps,state.registroIso);
+    var newShift={ id:uid(), title:(qd.title&&qd.title.trim())||"Turno extra", date:state.registroIso, type:"custom", start:qd.start, end:qd.end,
+      products:ps.map(function(p){ return {product:p.product,kg:0,mesh:0}; }), costPerPerson:COST_PER_PERSON, wasteTarget:0, prodType:"normal", maquina:"si",
+      people:[], notes:"", closed:false, attendance:{}, invInicial:[], invFinal:[], invInicial20:null, invFinal20:null,
+      realByProduct:ps.map(function(){ return {kg:0,mesh:0}; }) };
+    state.shifts.push(newShift); persist(); cloudSet('shifts',newShift);
+    state.quickAddDraft=null; state.quickAddOpen=false;
+    openQuickInv(newShift.id);
+  }
   function closeDrawer(){ state.drawerOpen=false; render(); }
   function openChooser(idsStr,x,y){ state.chooser={ids:idsStr.split(","),x:x,y:y}; render(); }
   function closeChooser(){ state.chooser=null; render(); }
@@ -1181,9 +1256,10 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
               '<div style="margin-top:5px;display:flex;flex-direction:column;gap:2px">'+rows+'</div>'+kgline+'</div>';
           } else if(first.type==="am"){
             var s=first; var closed=!!s.closed; var na=gcount(s.groupA), nb=gcount(s.groupB), npt=gcount(s.groupPT);
+            var nFull=na+nb, totBar=(nFull+npt)||1, fullPct=Math.round(nFull/totBar*100);
             var pinfo=presentInfo(s); var tot=pinfo.total;
             var amStyle=base.replace("border-left:3px solid "+c.bar+";","")+"padding-left:12px;cursor:grab;";
-            var grad='<div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(to bottom,'+th.types.a.bar+' 0 50%,'+th.types.b.bar+' 50% 100%)"></div>';
+            var grad='<div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:'+(npt>0?('linear-gradient(to bottom,'+th.types.b.bar+' 0 '+fullPct+'%,'+th.types.a.bar+' '+fullPct+'% 100%)'):th.types.b.bar)+'"></div>';
             var grow=function(nm,col,n){ return '<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:3px;flex:none;background:'+col+'"></span><span style="font:600 11px \'Space Grotesk\';color:'+tx+'">'+nm+'</span>'+peopleIcons(n,col)+'<span style="font:600 9.5px \'IBM Plex Mono\';color:'+tx+';opacity:.6;margin-left:auto">'+n+'p</span></div>'; };
             var amChips=""; if(closed){ amChips+=chip(IC.check(9)+' '+fmt(s.kgReal||0)+' kg',tx,chipStrong,"display:inline-flex;align-items:center;gap:3px;box-shadow:inset 0 0 0 1px var(--ti-ok,#12A150)"); amChips+=chip(fmt(s.meshReal||0)+' mallas',tx,chipStrong); var cpkAmReal=(s.kgReal||0)>0?Math.round(laborCost(s)/s.kgReal):null; if(cpkAmReal!=null) amChips+=chip('$'+fmt(cpkAmReal)+'/kg',tx,chipStrong); } else { amChips+=chip(fmt(metaKg(s))+' kg',tx,chipBg); amChips+=chip(fmt(metaMesh(s))+' mallas',tx,chipBg); var cpkAm=metaKg(s)>0?Math.round(laborCost(s)/metaKg(s)):null; if(cpkAm!=null) amChips+=chip('$'+fmt(cpkAm)+'/kg',tx,chipBg); }
             var amBadge=closed?'<span style="display:inline-flex;align-items:center;gap:3px;font:600 8.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-ok,#12A150);background:var(--ti-ok-soft,#E4F5EC);padding:2px 6px;border-radius:5px">'+IC.check(10)+'Real</span>':(isEnded(s)?'<span style="font:600 8.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-warn,#B26B00);background:var(--ti-warn-bg,#FFF5E0);padding:2px 6px;border-radius:5px">Pend.</span>':'');
@@ -1191,7 +1267,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
             return '<div class="ti-shift ti-press" data-card-id="'+s.id+'" title="Turno AM · '+tot+' personas real'+(pinfo.licencia?(' ('+pinfo.licencia+' con licencia)'):'')+'" style="'+amStyle+'">'+grad+
               '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px"><span style="font:600 10.5px \'IBM Plex Mono\';color:'+tx+';opacity:.72">'+esc(timeLabel(s))+'</span><span style="font:700 10px \'IBM Plex Mono\';color:'+tx+'">'+totLabel+'</span></div>'+
               '<div style="margin-top:3px;display:flex;align-items:center;gap:7px"><span style="font:700 13px \'Space Grotesk\';color:'+tx+'">'+esc(s.title)+'</span>'+amBadge+'</div>'+
-              '<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">'+grow("Grupo A",th.types.a.bar,na)+grow("Grupo B",th.types.b.bar,nb)+(npt>0?grow("Part-time",th.types.custom.bar,npt):"")+'</div>'+
+              '<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">'+grow("Full time",th.types.b.bar,nFull)+(npt>0?grow("Part-time",th.types.a.bar,npt):"")+'</div>'+
               (height>=118?'<div style="margin-top:auto;display:flex;gap:5px;flex-wrap:wrap;padding-top:6px">'+amChips+'</div>':'')+
               '<div data-resize-id="'+s.id+'" title="Arrastra para cambiar la duración" style="position:absolute;left:0;right:0;bottom:0;height:11px;cursor:ns-resize;border-radius:0 0 12px 12px"></div>'+
             '</div>';
@@ -1233,7 +1309,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         {label:"Merma objetivo prom.",value:fmt1(merma),unit:"%",tag:"objetivo",sub:fmt(Math.round(personHours))+" horas-persona"}
       ];
       var metricsHtml=metrics.map(function(m,mi){ return '<div style="flex:1;min-width:150px;padding:9px 16px'+(mi>0?';border-left:1px solid var(--ti-line2,#E8EDF2)':'')+'"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px"><div style="font:600 10.5px \'Space Grotesk\';letter-spacing:.02em;color:var(--ti-muted,#647787)">'+m.label+'</div><div style="font:600 9px \'IBM Plex Mono\';color:'+acc+';background:'+softChip+';padding:2px 6px;border-radius:5px">'+m.tag+'</div></div><div style="margin-top:4px;display:flex;align-items:baseline;gap:4px"><span style="font:700 19px/1 \'IBM Plex Mono\';letter-spacing:-.02em;color:var(--ti-text,#14202B);font-variant-numeric:tabular-nums">'+m.value+'</span><span style="font:600 11px \'IBM Plex Mono\';color:var(--ti-muted,#647787)">'+m.unit+'</span></div><div style="margin-top:3px;font:500 10.5px \'Space Grotesk\';color:var(--ti-muted,#647787);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+m.sub.replace(/<[^>]*>/g,"")+'">'+m.sub+'</div></div>'; }).join("");
-      var legend=[{label:"Grupo A",color:th.types.a.bar},{label:"Grupo B",color:th.types.b.bar},{label:"Noche",color:th.types.night.bar},{label:"Especial",color:th.types.custom.bar}];
+      var legend=[{label:"Full time",color:th.types.b.bar},{label:"Part-time",color:th.types.a.bar},{label:"Noche",color:th.types.night.bar},{label:"Especial",color:th.types.custom.bar}];
       var legendHtml=legend.map(function(lg){ return '<span style="display:inline-flex;align-items:center;gap:7px;font:600 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787);padding:6px 11px;border:1px solid var(--ti-line,#DCE3EA);border-radius:999px;background:var(--ti-surface2,#F3F6F9)"><i style="width:9px;height:9px;border-radius:3px;display:block;background:'+lg.color+'"></i>'+lg.label+'</span>'; }).join("");
       legendHtml+='<span style="display:inline-flex;align-items:center;gap:7px;font:600 11.5px \'Space Grotesk\';color:var(--ti-ok,#12A150);padding:6px 11px;border:1px solid var(--ti-ok,#12A150);border-radius:999px;background:var(--ti-ok-soft,#E4F5EC)">'+IC.check(11)+'Cerrado</span>';
 
@@ -1587,6 +1663,73 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       comprasBody=comprasTabs+tabContent;
     }
 
+    /* ---------- REGISTRO DE TURNO (vista simple para jefes de turno) ---------- */
+    var registroBody="";
+    if(state.view==="registro"){
+      if(!state.registroIso) state.registroIso=todayIso;
+      var rIso=state.registroIso;
+      var rDate=new Date(rIso+"T00:00:00");
+      var rTurnos=state.shifts.filter(function(s){ return s.date===rIso; }).sort(function(a,b){ return (a.start||"").localeCompare(b.start||""); });
+
+      var dayNav='<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px"><button class="ti-hbtn ti-press" data-act="registroDay" data-dir="-1" style="width:40px;height:40px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);display:grid;place-items:center;color:var(--ti-text,#14202B)">'+IC.chevL()+'</button><div style="flex:1;text-align:center;font:700 16px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+DAYS[(rDate.getDay()+6)%7]+' '+rDate.getDate()+' de '+rDate.toLocaleDateString("es-CL",{month:"long"})+(rIso===todayIso?' <span style="font:700 10px \'Space Grotesk\';color:var(--ti-accent,#0E8FD6)">· HOY</span>':'')+'</div><button class="ti-hbtn ti-press" data-act="registroDay" data-dir="1" style="width:40px;height:40px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);display:grid;place-items:center;color:var(--ti-text,#14202B)">'+IC.chevR()+'</button>'+(rIso!==todayIso?'<button class="ti-hbtn ti-press" data-act="registroToday" style="height:40px;padding:0 16px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">Hoy</button>':'')+'</div>';
+
+      var turnoCards=rTurnos.map(function(s){
+        var qdSaved=s.registroDraft;
+        var hayBorrador=!!qdSaved;
+        var estadoTxt=s.closed?"Cerrado":(hayBorrador?(qdSaved.noHubo?"No hubo — por aprobar":"Por aprobar"):"Sin inventario");
+        var estadoColor=s.closed?"var(--ti-ok,#12A150)":(hayBorrador?"var(--ti-warn,#B26B00)":"var(--ti-muted,#647787)");
+        var isOpen=state.quickEditId===s.id;
+        var head=s.closed?
+          ('<div style="width:100%;padding:16px 18px;display:flex;align-items:center;gap:12px"><div style="flex:1;min-width:0"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(s.title||"Turno")+'</div><div style="margin-top:2px;font:500 12.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+esc(s.start)+'–'+esc(s.end)+'</div></div><span style="font:700 11px \'Space Grotesk\';letter-spacing:.04em;color:'+estadoColor+';background:'+estadoColor+'1a;padding:5px 11px;border-radius:20px;white-space:nowrap">'+estadoTxt+'</span></div>'):
+          ('<button data-act="quickInv" data-id="'+s.id+'" style="width:100%;text-align:left;border:0;background:transparent;padding:16px 18px;display:flex;align-items:center;gap:12px;cursor:pointer"><div style="flex:1;min-width:0"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(s.title||"Turno")+'</div><div style="margin-top:2px;font:500 12.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+esc(s.start)+'–'+esc(s.end)+'</div></div><span style="font:700 11px \'Space Grotesk\';letter-spacing:.04em;color:'+estadoColor+';background:'+estadoColor+'1a;padding:5px 11px;border-radius:20px;white-space:nowrap">'+estadoTxt+'</span><span style="color:var(--ti-muted,#647787);transform:rotate('+(isOpen?"180deg":"0deg")+');transition:transform .15s">'+IC.chevDown(18)+'</span></button>');
+
+        var body="";
+        if(isOpen&&!s.closed){
+          var qd=state.quickDraft;
+          var namesRows=(qd.names||[]).map(function(nm){
+            var present=qd.attendance[nm]!=="ausente";
+            return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--ti-line2,#E8EDF2)">'+
+              '<button data-act="quickToggleAtt" data-name="'+esc(nm)+'" style="width:26px;height:26px;border-radius:8px;flex:none;border:2px solid '+(present?"var(--ti-ok,#12A150)":"var(--ti-line,#DCE3EA)")+';background:'+(present?"var(--ti-ok,#12A150)":"transparent")+';display:grid;place-items:center;color:#fff">'+(present?IC.check(14):"")+'</button>'+
+              '<span style="flex:1;font:600 14px \'Space Grotesk\';color:'+(present?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+';text-decoration:'+(present?"none":"line-through")+'">'+esc(nm)+'</span>'+
+              '<button data-act="quickRemoveName" data-name="'+esc(nm)+'" title="Quitar" style="border:0;background:transparent;color:var(--ti-muted,#647787);cursor:pointer;padding:4px">'+IC.close()+'</button>'+
+              '</div>';
+          }).join("")||'<div style="padding:10px 0;font:500 13px \'Space Grotesk\';color:var(--ti-muted,#647787)">Todavía no hay nadie anotado en este turno.</div>';
+          var namesSection='<div style="padding-top:14px"><div style="font:700 10px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);margin-bottom:2px">Quién estuvo (toca para marcar presente/ausente)</div>'+namesRows+
+            '<div style="display:flex;gap:8px;margin-top:12px"><input type="text" placeholder="Agregar nombre" value="'+esc(state.quickNameDraft||"")+'" data-quickname-f="1" style="flex:1;height:42px"><button class="ti-ghost ti-press" data-act="quickAddName" style="height:42px;padding:0 16px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13px \'Space Grotesk\'">'+IC.plus(15)+'</button></div></div>';
+          var rows=(s.products||[]).map(function(p){
+            var name=p.product;
+            var iniEntry=(qd.invInicial||[]).filter(function(r){return r&&r.product===name;})[0]||{};
+            var finEntry=(qd.invFinal||[]).filter(function(r){return r&&r.product===name;})[0]||{};
+            return '<div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;align-items:center;padding:11px 0;border-top:1px solid var(--ti-line2,#E8EDF2)">'+
+              '<div style="display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:3px;flex:none;background:'+prodColor(name)+'"></span><span style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(name)+'</span></div>'+
+              '<input type="number" min="0" step="1" inputmode="numeric" placeholder="Inicial (mallas)" value="'+esc(iniEntry.mesh||"")+'" data-qinv-which="invInicial" data-qinv-product="'+esc(name)+'" style="height:46px;font-size:15px;text-align:center">'+
+              '<input type="number" min="0" step="1" inputmode="numeric" placeholder="Final (mallas)" value="'+esc(finEntry.mesh||"")+'" data-qinv-which="invFinal" data-qinv-product="'+esc(name)+'" style="height:46px;font-size:15px;text-align:center">'+
+              '</div>';
+          }).join("");
+          var colHead='<div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;padding:0 0 6px"><div></div><div style="font:700 10px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);text-align:center">Inv. inicial</div><div style="font:700 10px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);text-align:center">Inv. final</div></div>';
+          body='<div style="padding:0 18px 18px;border-top:1px solid var(--ti-line,#DCE3EA)">'+
+            namesSection+
+            '<div style="padding-top:14px;margin-top:14px;border-top:1px solid var(--ti-line2,#E8EDF2)">'+colHead+rows+'</div>'+
+            '<div style="display:flex;gap:10px;margin-top:16px">'+
+            '<button class="ti-ghost ti-press" data-act="saveQuickDraft" style="flex:1;height:46px;border-radius:12px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 14px \'Space Grotesk\'">Guardar</button>'+
+            (isFelipe()?'<button class="ti-primary ti-press" data-act="approveRegistro" style="flex:1;height:46px;border-radius:12px;background:var(--ti-accent,#0E8FD6);color:#fff;font:700 14px \'Space Grotesk\'">'+IC.check(15)+' Llevar al calendario</button>':'')+
+            '</div>'+
+            '<button class="ti-ghost ti-press" data-act="noHubo" style="width:100%;margin-top:10px;height:42px;border-radius:12px;border:1px dashed var(--ti-line,#DCE3EA);background:transparent;color:var(--ti-muted,#647787);font:600 13px \'Space Grotesk\'">No hubo turno — marcar en 0</button>'+
+            (!isFelipe()?'<div style="margin-top:10px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787);text-align:center">Felipe revisa y lo lleva al calendario real.</div>':'')+
+            '</div>';
+        }
+        return '<section style="'+CARD+';overflow:hidden;margin-bottom:14px">'+head+body+'</section>';
+      }).join("")||'<div style="padding:40px 20px;text-align:center;color:var(--ti-muted,#647787);font:500 14px \'Space Grotesk\'">No hay turnos programados este día.</div>';
+
+      var qad=state.quickAddDraft||{title:"",start:"16:00",end:"22:00"};
+      var quickAddHtml=state.quickAddOpen?
+        ('<section style="'+CARD+';overflow:hidden;margin-top:6px"><div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px"><input type="text" placeholder="Nombre del turno (ej. Turno tarde)" value="'+esc(qad.title)+'" data-quickadd-f="title" style="height:44px"><div style="display:flex;gap:10px"><input type="time" value="'+esc(qad.start)+'" data-quickadd-f="start" style="height:44px;flex:1"><input type="time" value="'+esc(qad.end)+'" data-quickadd-f="end" style="height:44px;flex:1"></div><div style="display:flex;gap:10px;margin-top:4px"><button class="ti-ghost ti-press" data-act="quickAddCancel" style="flex:1;height:44px;border-radius:12px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13.5px \'Space Grotesk\'">Cancelar</button><button class="ti-primary ti-press" data-act="quickAddCreate" style="flex:1;height:44px;border-radius:12px;background:var(--ti-accent,#0E8FD6);color:#fff;font:600 13.5px \'Space Grotesk\'">Crear turno</button></div></div></section>'):
+        ('<button class="ti-ghost ti-press" data-act="quickAddOpen" style="width:100%;height:48px;border-radius:14px;border:1.5px dashed var(--ti-line,#DCE3EA);background:transparent;color:var(--ti-muted,#647787);font:600 13.5px \'Space Grotesk\';display:flex;align-items:center;justify-content:center;gap:8px">'+IC.plus(17)+'Agregar turno que falte</button>');
+
+      var infoCardR='<div style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:14px;background:var(--ti-accent-soft,#E4F2FB);border:1px solid var(--ti-line,#DCE3EA);margin-bottom:18px"><span style="color:var(--ti-accent,#0E8FD6);flex:none;display:flex;margin-top:1px">'+IC.check(18)+'</span><div style="font:500 13px/1.5 \'Space Grotesk\';color:var(--ti-text,#14202B)">Toca un turno, anota las mallas de inventario inicial y final, y cierra. Nada más que hacer acá.</div></div>';
+      registroBody=infoCardR+dayNav+turnoCards+quickAddHtml;
+    }
+
     /* ---------- REPORTES ---------- */
     var reportesBody="";
     if(state.view==="reportes"){
@@ -1828,20 +1971,20 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     /* ---------- sidebar ---------- */
     function navItem(view,label,icon){ var on=state.view===view; return '<button class="ti-nav'+(on?' ti-nav-on':'')+' ti-press" data-act="nav" data-view="'+view+'" aria-current="'+(on?'page':'false')+'"><span class="ti-nav-ic">'+icon+'</span>'+label+'</button>'; }
     function bnavItem(view,label,icon){ var on=state.view===view; return '<button class="ti-bnav-item'+(on?' ti-bnav-on':'')+' ti-press" data-act="nav" data-view="'+view+'" aria-current="'+(on?'page':'false')+'">'+icon+'<span>'+label+'</span></button>'; }
-    var bottomNav='<nav class="ti-bottomnav" data-noprint>'+bnavItem("calendario","Calendario",IC.cal(19))+bnavItem("grupos","Pagos",IC.rows(19))+bnavItem("inventario","Inventario",IC.box(19))+bnavItem("compras","Compras",IC.cart(19))+bnavItem("metas","Metas",IC.meta(19))+bnavItem("reportes","Reportes",IC.chart(19))+bnavItem("config","Config",IC.gear(19))+'</nav>';
+    var bottomNav='<nav class="ti-bottomnav" data-noprint>'+bnavItem("calendario","Calendario",IC.cal(19))+bnavItem("registro","Registro",IC.check(19))+bnavItem("grupos","Pagos",IC.rows(19))+bnavItem("inventario","Inventario",IC.box(19))+bnavItem("compras","Compras",IC.cart(19))+bnavItem("metas","Metas",IC.meta(19))+bnavItem("reportes","Reportes",IC.chart(19))+bnavItem("config","Config",IC.gear(19))+'</nav>';
     var fabDay=isoList&&isoList.length?isoList[0]:isoDate(new Date());
     var fabMobile=(state.view==="calendario"&&!state.drawerOpen)?('<button class="ti-fab-mobile ti-press" data-act="fabnew" data-iso="'+fabDay+'" aria-label="Nuevo turno" data-noprint>'+IC.plus(24)+'</button>'):"";
-    var sidebar='<aside class="ti-sidebar" data-noprint><div class="ti-brand"><div class="ti-brand-mark"><div style="width:19px;height:19px;border-radius:50%;border:2.4px solid #fff;display:grid;place-items:center"><div style="width:6px;height:6px;border-radius:50%;background:#fff"></div></div></div><div><div class="ti-brand-kicker">THE ICE</div><div class="ti-brand-title">Producción</div></div></div>'+miniCalHtml()+'<div class="ti-navwrap" data-scroll><div class="ti-nav-label">Planificación</div>'+navItem("calendario","Calendario",IC.cal(18))+navItem("grupos","Planilla de pagos",IC.rows(18))+'<div class="ti-nav-label">Operación</div>'+navItem("inventario","Inventario",IC.box(18))+navItem("compras","Compras",IC.cart(18))+navItem("metas","Metas",IC.meta(18))+'<div class="ti-nav-label">Análisis</div>'+navItem("reportes","Reportes",IC.chart(18))+'<div class="ti-nav-label">Sistema</div>'+navItem("config","Configuración",IC.gear(18))+'</div><div class="ti-navfoot"><div style="font:700 10px \'Space Grotesk\';letter-spacing:.16em;color:var(--ti-nav-label,#5E747B)">DATOS AL</div><div style="margin-top:4px;font:600 13px \'IBM Plex Mono\';color:var(--ti-nav-text,#E2ECEF);font-variant-numeric:tabular-nums">'+todayStr+'</div></div></aside>';
+    var sidebar='<aside class="ti-sidebar" data-noprint><div class="ti-brand"><div class="ti-brand-mark"><div style="width:19px;height:19px;border-radius:50%;border:2.4px solid #fff;display:grid;place-items:center"><div style="width:6px;height:6px;border-radius:50%;background:#fff"></div></div></div><div><div class="ti-brand-kicker">THE ICE</div><div class="ti-brand-title">Producción</div></div></div>'+miniCalHtml()+'<div class="ti-navwrap" data-scroll><div class="ti-nav-label">Planificación</div>'+navItem("calendario","Calendario",IC.cal(18))+navItem("grupos","Planilla de pagos",IC.rows(18))+'<div class="ti-nav-label">Operación</div>'+navItem("registro","Registro de turno",IC.check(18))+navItem("inventario","Inventario",IC.box(18))+navItem("compras","Compras",IC.cart(18))+navItem("metas","Metas",IC.meta(18))+'<div class="ti-nav-label">Análisis</div>'+navItem("reportes","Reportes",IC.chart(18))+'<div class="ti-nav-label">Sistema</div>'+navItem("config","Configuración",IC.gear(18))+'</div><div class="ti-navfoot"><div style="font:700 10px \'Space Grotesk\';letter-spacing:.16em;color:var(--ti-nav-label,#5E747B)">DATOS AL</div><div style="margin-top:4px;font:600 13px \'IBM Plex Mono\';color:var(--ti-nav-text,#E2ECEF);font-variant-numeric:tabular-nums">'+todayStr+'</div></div></aside>';
 
     /* ---------- topbar ---------- */
     var themeMeta=[{key:"glaciar",label:"Glaciar",dot:"#0E8FD6"},{key:"vapor",label:"Vapor",dot:"#C6721E"},{key:"medianoche",label:"Medianoche",dot:"#38B2F2"}];
     var themeButtonsHtml=themeMeta.map(function(t){ var active=state.theme===t.key; var st="display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border-radius:9px;font:600 12.5px 'Space Grotesk';background:"+(active?"var(--ti-surface,#fff)":"transparent")+";color:"+(active?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+";box-shadow:"+(active?"0 2px 8px rgba(20,32,43,.12)":"none"); return '<button class="ti-hbtn ti-press" data-act="theme" data-theme="'+t.key+'" aria-pressed="'+active+'" title="Tema '+t.label+'" style="'+st+'"><span style="width:10px;height:10px;border-radius:50%;background:'+t.dot+';box-shadow:0 0 0 1.5px var(--ti-surface,#fff)"></span><span style="white-space:nowrap">'+t.label+'</span></button>'; }).join("");
     var weekNav='<div style="display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)"><button class="ti-hbtn ti-press" data-act="prevWeek" title="Semana anterior" aria-label="Semana anterior" style="width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--ti-text,#14202B)">'+IC.chevL()+'</button><button class="ti-hbtn ti-press" data-act="goToday" style="height:34px;padding:0 13px;border-radius:9px;font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">Hoy</button><button class="ti-hbtn ti-press" data-act="nextWeek" title="Semana siguiente" aria-label="Semana siguiente" style="width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--ti-text,#14202B)">'+IC.chevR()+'</button></div>';
-    var meta={calendario:["Operación / Calendario","Calendario de turnos"],grupos:["Planificación / Planilla de pagos","Planilla de pagos"],inventario:["Operación / Inventario","Inventario"],compras:["Operación / Compras","Compras e insumos"],metas:["Operación / Metas","Metas de producción"],reportes:["Análisis / Reportes","Reportes de producción"],config:["Sistema / Configuración","Configuración"]}[state.view];
+    var meta={calendario:["Operación / Calendario","Calendario de turnos"],registro:["Operación / Registro","Registro de turno"],grupos:["Planificación / Planilla de pagos","Planilla de pagos"],inventario:["Operación / Inventario","Inventario"],compras:["Operación / Compras","Compras e insumos"],metas:["Operación / Metas","Metas de producción"],reportes:["Análisis / Reportes","Reportes de producción"],config:["Sistema / Configuración","Configuración"]}[state.view];
     var showWeek=state.view==="calendario"||state.view==="grupos"||state.view==="metas";
     var calToggle=""; if(state.view==="calendario"){ var cb=function(m,l){ var on=state.calMode===m; return '<button class="ti-hbtn ti-press" data-act="calmode" data-mode="'+m+'" aria-pressed="'+on+'" style="height:34px;padding:0 13px;border-radius:9px;font:600 12.5px \'Space Grotesk\';background:'+(on?"var(--ti-surface,#fff)":"transparent")+';color:'+(on?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+';box-shadow:'+(on?"0 2px 8px rgba(20,32,43,.12)":"none")+'">'+l+'</button>'; }; calToggle='<div style="display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)">'+cb("semana","Semana")+cb("mes","Mes")+'</div>'; }
     var monthLabel=new Date(state.monthMs).toLocaleDateString("es-CL",{month:"long",year:"numeric"});
-    var subtitle=(state.view==="inventario"?("Conteos y stock · datos al "+todayStr):(state.view==="compras"?("Órdenes de compra, retiros y stock de insumos · datos al "+todayStr):(state.view==="salidas"?("Despachos · se cruzan con producción · datos al "+todayStr):(state.view==="config"?"Parámetros, personas y stock":(state.view==="reportes"?("Análisis por rango de fechas · datos al "+todayStr):((monthMode()?monthLabel:weekLabel)+" · datos al "+todayStr))))));
+    var subtitle=(state.view==="inventario"?("Conteos y stock · datos al "+todayStr):(state.view==="registro"?"Solo inventario inicial y final de cada turno":(state.view==="compras"?("Órdenes de compra, retiros y stock de insumos · datos al "+todayStr):(state.view==="salidas"?("Despachos · se cruzan con producción · datos al "+todayStr):(state.view==="config"?"Parámetros, personas y stock":(state.view==="reportes"?("Análisis por rango de fechas · datos al "+todayStr):((monthMode()?monthLabel:weekLabel)+" · datos al "+todayStr)))))));
     var rightAction="";
     if(state.view==="reportes") rightAction='<button class="ti-ghost ti-press" data-act="print" style="display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 15px;border-radius:12px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13.5px \'Space Grotesk\'">'+IC.printer(16)+'Imprimir</button>';
     else if(state.view==="calendario"||state.view==="grupos") rightAction='<button class="ti-primary ti-press" data-act="new" style="display:flex;align-items:center;gap:8px;height:40px;padding:0 16px;border-radius:12px;background:var(--ti-accent,#0E8FD6);color:var(--ti-accent-ink,#fff);font:600 14px \'Space Grotesk\';box-shadow:0 8px 20px var(--ti-accentshadow,rgba(14,143,214,.32))">'+IC.plus(17)+'Nuevo turno</button>';
@@ -1942,7 +2085,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       '</div>'+
       '<div style="border-top:1px solid var(--ti-line,#DCE3EA);padding:14px 20px;display:flex;gap:10px;align-items:center;background:var(--ti-surface,#fff);flex:none">'+deleteBtn+dupBtn+'<div style="display:flex;gap:10px;margin-left:auto"><button class="ti-close ti-press" data-act="close" style="height:42px;padding:0 16px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13.5px \'Space Grotesk\'">Cancelar</button><button class="ti-primary ti-press" data-act="save" style="height:42px;padding:0 20px;border-radius:11px;background:var(--ti-accent,#0E8FD6);color:var(--ti-accent-ink,#fff);font:600 13.5px \'Space Grotesk\';box-shadow:0 8px 20px var(--ti-accentshadow,rgba(14,143,214,.32))">Guardar turno</button></div></div></aside>';
 
-    var content=state.view==="reportes"?reportesBody:(state.view==="grupos"?gruposBody:(state.view==="inventario"?inventarioBody:(state.view==="compras"?comprasBody:(state.view==="metas"?metasBody:(state.view==="config"?configBody:calendarBody)))));
+    var content=state.view==="reportes"?reportesBody:(state.view==="grupos"?gruposBody:(state.view==="inventario"?inventarioBody:(state.view==="compras"?comprasBody:(state.view==="registro"?registroBody:(state.view==="metas"?metasBody:(state.view==="config"?configBody:calendarBody))))));
     var html='<div class="ti-app" style="'+themeVars+'">'+sidebar+'<div class="ti-main">'+topbar+'<div class="ti-content">'+bannerHtml+content+'</div></div>'+drawer+chooserHtml+daySummaryHtml()+bottomNav+fabMobile+'</div>';
 
     var scrolls={};
@@ -1988,6 +2131,18 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(act==="save") saveShift();
     else if(act==="delete") deleteShift();
     else if(act==="duplicate") duplicateShiftToNextDay();
+    else if(act==="quickInv") openQuickInv(btn.getAttribute("data-id"));
+    else if(act==="saveQuickDraft") saveQuickDraft();
+    else if(act==="approveRegistro") approveRegistro();
+    else if(act==="noHubo") markNoHubo();
+    else if(act==="quickToggleAtt") toggleQuickAttendance(btn.getAttribute("data-name"));
+    else if(act==="quickAddName") quickAddName();
+    else if(act==="quickRemoveName") removeQuickName(btn.getAttribute("data-name"));
+    else if(act==="quickAddOpen"){ state.quickAddOpen=true; state.quickAddDraft={title:"",start:"16:00",end:"22:00"}; render(); }
+    else if(act==="quickAddCancel"){ state.quickAddOpen=false; state.quickAddDraft=null; render(); }
+    else if(act==="quickAddCreate") quickAddShift();
+    else if(act==="registroDay"){ var rd=new Date((state.registroIso||isoDate(new Date()))+"T00:00:00"); rd.setDate(rd.getDate()+Number(btn.getAttribute("data-dir"))); state.registroIso=isoDate(rd); state.quickEditId=null; render(); }
+    else if(act==="registroToday"){ state.registroIso=isoDate(new Date()); state.quickEditId=null; render(); }
     else if(act==="comprasTab"){ state.comprasTab=btn.getAttribute("data-tab"); render(); }
     else if(act==="addOC"){ var cd1=state.compraDraft||{}; if(!cd1.ocCantidad||Number(cd1.ocCantidad)<=0){ alert("Ingresa la cantidad total de la OC."); return; } addOC(cd1.ocProducto,cd1.ocFecha||isoDate(new Date()),cd1.ocCantidad,cd1.ocNotas); state.compraDraft.ocCantidad=""; state.compraDraft.ocNotas=""; render(); }
     else if(act==="delOC"){ if(confirm("¿Eliminar esta OC y todos sus retiros?")){ deleteOC(btn.getAttribute("data-id")); render(); } }
@@ -2027,7 +2182,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   root.addEventListener("click",function(e){ var combo=e.target.closest("[data-combo-ids]"); if(combo){ openChooser(combo.getAttribute("data-combo-ids"),e.clientX,e.clientY); } });
   root.addEventListener("dblclick",function(e){ var col=e.target.closest("[data-daycol]"); if(!col) return; if(e.target.closest("[data-card-id]")||e.target.closest("[data-combo-ids]")) return; onColDbl(col,e); });
   root.addEventListener("mousedown",function(e){ var handle=e.target.closest("[data-resize-id]"); if(handle){ onResizeDown(handle.getAttribute("data-resize-id"),e); return; } var card=e.target.closest("[data-card-id]"); if(card){ onCardDown(card.getAttribute("data-card-id"),e); } });
-  root.addEventListener("input",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-person-idx")){ var pg=t.getAttribute("data-person-group")||""; var pk=pkey(pg); state.draft[pk][+t.getAttribute("data-person-idx")]=t.value; updateComputed(); } else if(t.hasAttribute("data-invini-idx")){ var vi=+t.getAttribute("data-invini-idx"); var vif=t.getAttribute("data-invini-f"); if(!state.draft.invInicial) state.draft.invInicial=[]; if(!state.draft.invInicial[vi]) state.draft.invInicial[vi]={mesh:"",kg:""}; state.draft.invInicial[vi][vif]=t.value; if(vif==="mesh") autoKgInvIni(vi); updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="mesh") autoKgProd(pi); updateComputed(); } else if(t.hasAttribute("data-invclose-idx")){ var ii=+t.getAttribute("data-invclose-idx"); var iif=t.getAttribute("data-invclose-f"); if(!state.draft.invCounts) state.draft.invCounts=[]; if(!state.draft.invCounts[ii]) state.draft.invCounts[ii]={mesh:"",kg:""}; state.draft.invCounts[ii][iif]=t.value; if(iif==="mesh") autoKgInvFinal(ii); updateComputed(); } else if(t.hasAttribute("data-saco20-tag")){ var s20tag=t.getAttribute("data-saco20-tag"); var s20f=t.getAttribute("data-saco20-f"); var s20key=s20tag==="ini"?"invInicial20":"invFinal20"; if(!state.draft[s20key]) state.draft[s20key]={sacos:"",kg:""}; state.draft[s20key][s20f]=t.value; if(s20f==="sacos") autoKgSaco20(s20tag); updateComputed(); } else if(t.hasAttribute("data-cfg-prod")){ config.bagStock[t.getAttribute("data-cfg-prod")]=t.value; } else if(t.hasAttribute("data-cfg-num")){ config[t.getAttribute("data-cfg-num")]=t.value; } else if(t.hasAttribute("data-cfg-list")){ var lk=t.getAttribute("data-cfg-list"); var cf=lk==="roster"?"roster":(lk==="defA"?"defaultGroupA":"defaultGroupB"); if(!config[cf])config[cf]=[]; config[cf][+t.getAttribute("data-cfg-idx")]=t.value; } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="mesh"){ var fac=kgMalla(state.invDraft.product); if(fac>0){ state.invDraft.qty=(t.value===""?"":String(Number(t.value||0)*fac)); var qe=root.querySelector('[data-inv-f="qty"]'); if(qe){ qe.value=state.invDraft.qty; qe.readOnly=true; } } } } else if(t.hasAttribute("data-salrow-idx")){ var sri=+t.getAttribute("data-salrow-idx"); var srf=t.getAttribute("data-salrow-f"); if(!state.draft.salidasCount) state.draft.salidasCount=[]; if(!state.draft.salidasCount[sri]) state.draft.salidasCount[sri]={mesh:"",kg:""}; state.draft.salidasCount[sri][srf]=t.value; if(srf==="mesh") autoKgSalRow(sri); updateComputed(); } else if(t.hasAttribute("data-metaquick-f")){ if(!state.metaQuick) state.metaQuick={product:activeProducts()[0]||"Original 3 kg",mesh:"",kg:""}; var mqf=t.getAttribute("data-metaquick-f"); state.metaQuick[mqf]=t.value; if(mqf==="mesh"){ var mqfac=kgMalla(state.metaQuick.product); if(mqfac>0){ state.metaQuick.kg=(t.value===""?"":String(Number(t.value||0)*mqfac)); var mqke=root.querySelector('[data-metaquick-f="kg"]'); if(mqke){ mqke.value=state.metaQuick.kg; mqke.readOnly=true; } } } else if(mqf==="product"){ render(); } } else if(t.hasAttribute("data-metaday-iso")){ var mdIso=t.getAttribute("data-metaday-iso"), mdProd=t.getAttribute("data-metaday-product"), mdF=t.getAttribute("data-metaday-f"); if(mdF==="mesh"){ var mdFac=kgMalla(mdProd); if(mdFac>0){ var kgv=(t.value===""?"":String(Number(t.value||0)*mdFac)); var kgEl=root.querySelector('[data-metadaykgof="'+mdIso+'|'+mdProd+'"]'); if(kgEl){ kgEl.value=kgv; kgEl.readOnly=true; } } } } else if(t.hasAttribute("data-sal-f")){ var sf=t.getAttribute("data-sal-f"); state.salDraft[sf]=t.value; if(sf==="mesh"){ var sfac=kgMalla(state.salDraft.product); if(sfac>0){ state.salDraft.kg=(t.value===""?"":String(Number(t.value||0)*sfac)); var ske=root.querySelector('[data-sal-f="kg"]'); if(ske){ ske.value=state.salDraft.kg; ske.readOnly=true; } } } } else if(t.hasAttribute("data-payr-name")){ autoPayRow(t.getAttribute("data-payr-name")); } else if(t.hasAttribute("data-payx-name")){ autoPayRow(t.getAttribute("data-payx-name")); } else if(t.hasAttribute("data-compra-f")){ if(!state.compraDraft) state.compraDraft={}; state.compraDraft[t.getAttribute("data-compra-f")]=t.value; } });
+  root.addEventListener("input",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-person-idx")){ var pg=t.getAttribute("data-person-group")||""; var pk=pkey(pg); state.draft[pk][+t.getAttribute("data-person-idx")]=t.value; updateComputed(); } else if(t.hasAttribute("data-invini-idx")){ var vi=+t.getAttribute("data-invini-idx"); var vif=t.getAttribute("data-invini-f"); if(!state.draft.invInicial) state.draft.invInicial=[]; if(!state.draft.invInicial[vi]) state.draft.invInicial[vi]={mesh:"",kg:""}; state.draft.invInicial[vi][vif]=t.value; if(vif==="mesh") autoKgInvIni(vi); updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="mesh") autoKgProd(pi); updateComputed(); } else if(t.hasAttribute("data-invclose-idx")){ var ii=+t.getAttribute("data-invclose-idx"); var iif=t.getAttribute("data-invclose-f"); if(!state.draft.invCounts) state.draft.invCounts=[]; if(!state.draft.invCounts[ii]) state.draft.invCounts[ii]={mesh:"",kg:""}; state.draft.invCounts[ii][iif]=t.value; if(iif==="mesh") autoKgInvFinal(ii); updateComputed(); } else if(t.hasAttribute("data-saco20-tag")){ var s20tag=t.getAttribute("data-saco20-tag"); var s20f=t.getAttribute("data-saco20-f"); var s20key=s20tag==="ini"?"invInicial20":"invFinal20"; if(!state.draft[s20key]) state.draft[s20key]={sacos:"",kg:""}; state.draft[s20key][s20f]=t.value; if(s20f==="sacos") autoKgSaco20(s20tag); updateComputed(); } else if(t.hasAttribute("data-cfg-prod")){ config.bagStock[t.getAttribute("data-cfg-prod")]=t.value; } else if(t.hasAttribute("data-cfg-num")){ config[t.getAttribute("data-cfg-num")]=t.value; } else if(t.hasAttribute("data-cfg-list")){ var lk=t.getAttribute("data-cfg-list"); var cf=lk==="roster"?"roster":(lk==="defA"?"defaultGroupA":"defaultGroupB"); if(!config[cf])config[cf]=[]; config[cf][+t.getAttribute("data-cfg-idx")]=t.value; } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="mesh"){ var fac=kgMalla(state.invDraft.product); if(fac>0){ state.invDraft.qty=(t.value===""?"":String(Number(t.value||0)*fac)); var qe=root.querySelector('[data-inv-f="qty"]'); if(qe){ qe.value=state.invDraft.qty; qe.readOnly=true; } } } } else if(t.hasAttribute("data-salrow-idx")){ var sri=+t.getAttribute("data-salrow-idx"); var srf=t.getAttribute("data-salrow-f"); if(!state.draft.salidasCount) state.draft.salidasCount=[]; if(!state.draft.salidasCount[sri]) state.draft.salidasCount[sri]={mesh:"",kg:""}; state.draft.salidasCount[sri][srf]=t.value; if(srf==="mesh") autoKgSalRow(sri); updateComputed(); } else if(t.hasAttribute("data-metaquick-f")){ if(!state.metaQuick) state.metaQuick={product:activeProducts()[0]||"Original 3 kg",mesh:"",kg:""}; var mqf=t.getAttribute("data-metaquick-f"); state.metaQuick[mqf]=t.value; if(mqf==="mesh"){ var mqfac=kgMalla(state.metaQuick.product); if(mqfac>0){ state.metaQuick.kg=(t.value===""?"":String(Number(t.value||0)*mqfac)); var mqke=root.querySelector('[data-metaquick-f="kg"]'); if(mqke){ mqke.value=state.metaQuick.kg; mqke.readOnly=true; } } } else if(mqf==="product"){ render(); } } else if(t.hasAttribute("data-metaday-iso")){ var mdIso=t.getAttribute("data-metaday-iso"), mdProd=t.getAttribute("data-metaday-product"), mdF=t.getAttribute("data-metaday-f"); if(mdF==="mesh"){ var mdFac=kgMalla(mdProd); if(mdFac>0){ var kgv=(t.value===""?"":String(Number(t.value||0)*mdFac)); var kgEl=root.querySelector('[data-metadaykgof="'+mdIso+'|'+mdProd+'"]'); if(kgEl){ kgEl.value=kgv; kgEl.readOnly=true; } } } } else if(t.hasAttribute("data-sal-f")){ var sf=t.getAttribute("data-sal-f"); state.salDraft[sf]=t.value; if(sf==="mesh"){ var sfac=kgMalla(state.salDraft.product); if(sfac>0){ state.salDraft.kg=(t.value===""?"":String(Number(t.value||0)*sfac)); var ske=root.querySelector('[data-sal-f="kg"]'); if(ske){ ske.value=state.salDraft.kg; ske.readOnly=true; } } } } else if(t.hasAttribute("data-payr-name")){ autoPayRow(t.getAttribute("data-payr-name")); } else if(t.hasAttribute("data-payx-name")){ autoPayRow(t.getAttribute("data-payx-name")); } else if(t.hasAttribute("data-compra-f")){ if(!state.compraDraft) state.compraDraft={}; state.compraDraft[t.getAttribute("data-compra-f")]=t.value; } else if(t.hasAttribute("data-quickadd-f")){ if(!state.quickAddDraft) state.quickAddDraft={}; state.quickAddDraft[t.getAttribute("data-quickadd-f")]=t.value; } else if(t.hasAttribute("data-quickname-f")){ state.quickNameDraft=t.value; } else if(t.hasAttribute("data-qinv-product")){ var qw=t.getAttribute("data-qinv-which"), qp=t.getAttribute("data-qinv-product"); var qfac=kgMalla(qp); var qkg=(t.value===""?"":String(Number(t.value||0)*qfac)); var qlist=state.quickDraft[qw]||[]; var qfound=false; qlist=qlist.map(function(r){ if(r&&r.product===qp){ qfound=true; return {product:qp,mesh:t.value,kg:qkg}; } return r; }); if(!qfound) qlist.push({product:qp,mesh:t.value,kg:qkg}); state.quickDraft[qw]=qlist; } });
   root.addEventListener("blur",function(e){ var t=e.target; if(!t||!t.hasAttribute) return; if(t.hasAttribute("data-salrow-idx")) salRowCommit(+t.getAttribute("data-salrow-idx")); else if(t.hasAttribute("data-payr-name")) payRateCommit(t.getAttribute("data-payr-name")); else if(t.hasAttribute("data-payx-name")) payExtraCommit(t.getAttribute("data-payx-name")); else if(t.hasAttribute("data-extrahours-key")) extraHoursPersonCommit(t.getAttribute("data-extrahours-key")); else if(t.hasAttribute("data-metaday-iso")){ var miso=t.getAttribute("data-metaday-iso"), mprod=t.getAttribute("data-metaday-product"); var meshEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="mesh"]'); var kgEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="kg"]'); var meshV=meshEl?meshEl.value:""; var kgV=kgEl?kgEl.value:""; var kgN=(kgV!==""&&!isNaN(Number(kgV)))?Number(kgV):0; var meshN=(meshV!==""&&!isNaN(Number(meshV)))?Number(meshV):null; metaCommit(miso,mprod,kgN,meshN); render(); } },true);
   root.addEventListener("change",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="product"){ autoKgProd(pi); render(); } else { if(pf==="mesh") autoKgProd(pi); updateComputed(); } } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="date"||iff==="shiftId"||iff==="product") render(); } else if(t.hasAttribute("data-sal-f")){ var slf=t.getAttribute("data-sal-f"); state.salDraft[slf]=t.value; if(slf==="date"||slf==="product") render(); } else if(t.hasAttribute("data-rep-f")){ var rff=t.getAttribute("data-rep-f"); if(rff==="from") state.repFrom=t.value; else if(rff==="to") state.repTo=t.value; else if(rff==="altaDemanda") state.repAltaDemandaTon=Number(t.value||30); render(); } });
   document.addEventListener("keydown",function(e){ if(e.key==="Escape"){ if(state.daySummaryIso){ state.daySummaryIso=null; render(); } else if(state.chooser) closeChooser(); else if(state.drawerOpen) closeDrawer(); } });
