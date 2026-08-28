@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-27-vie-largo-sab-corto -->
+<!-- BUILD-MARK: 2026-08-28-tres-camaras -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -272,6 +272,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     chevL:function(){return svg('<path d="M15 18l-6-6 6-6"/>',17,2.3);},
     chevR:function(){return svg('<path d="M9 6l6 6-6 6"/>',17,2.3);},
     chevDown:function(s){return svg('<path d="M6 9l6 6 6-6"/>',s||17,2.3);},
+    lock:function(s){return svg('<rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',s||16,2);},
     plus:function(s){return svg('<path d="M12 5v14M5 12h14"/>',s||17,2.2);},
     copy:function(s){return svg('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',s||17,1.9);},
     refresh:function(s){return svg('<path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/>',s||17,2);},
@@ -744,6 +745,138 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   }
   function openPending(id){ var s=findShift(id); if(!s) return; state.weekStartMs=getMonday(new Date(s.date+"T00:00:00")).getTime(); ensureWeek(state.weekStartMs); state.scrollReal=true; openEdit(id); }
   function isFelipe(){ try{ return !!(window.TICloud && window.TICloud.user && (window.TICloud.user.email||"").toLowerCase()==="felipe@theice.cl"); }catch(e){ return false; } }
+  /* ===== Vista por secciones del reefer 40 pies (PROTOTIPO) =====
+     16 secciones de pallets: 10 de Original 3 kg, 4 de Mini 3 kg, 2 de Original 2 kg Retail.
+     Un pallet completo = 60 mallas. Cada sección puede estar completa (60) o
+     incompleta (se ingresa el número de mallas a mano). */
+  var MALLAS_PALLET=60;
+  var KG_SACO=20;
+  /* Las 3 cámaras. C1 y C3 son por secciones de pallets; C2 son sacos sueltos
+     (materia prima, sin secciones). Cada sección tiene su propio id único. */
+  var CAMARAS=[
+    {id:"C1", nombre:"Cámara 1", sub:"Reefer 40 pies", tipo:"secciones", mallasPallet:60, secciones:(function(){
+      var out=[],i=1;
+      for(var a=0;a<10;a++) out.push({id:"C1-"+(i++),product:"Original 3 kg"});
+      for(var b=0;b<4;b++)  out.push({id:"C1-"+(i++),product:"Mini 3 kg"});
+      for(var c=0;c<2;c++)  out.push({id:"C1-"+(i++),product:"Original 2 kg Retail"});
+      return out;
+    })()},
+    {id:"C2", nombre:"Cámara 2", sub:"Sacos de "+KG_SACO+" kg", tipo:"sacos"},
+    {id:"C3", nombre:"Cámara 3", sub:"12 secciones de 28 mallas", tipo:"secciones", mallasPallet:28, secciones:(function(){
+      var out=[];
+      for(var i=1;i<=12;i++) out.push({id:"C3-"+i,product:null}); // producto se elige arriba
+      return out;
+    })()}
+  ];
+  function camara(id){ for(var i=0;i<CAMARAS.length;i++) if(CAMARAS[i].id===id) return CAMARAS[i]; return CAMARAS[0]; }
+  function secProduct(cam,s){ return s.product || (state.quickDraft&&state.quickDraft.c3Product) || "Original 3 kg"; }
+  var SECCIONES=CAMARAS[0].secciones; // compat
+  function secStore(which){ var qd=state.quickDraft; if(!qd) return {}; var k=which==="invInicial"?"secIni":"secFin"; if(!qd[k]) qd[k]={}; return qd[k]; }
+  function secMallas(which,sid){ var v=secStore(which)[sid]; return (v===undefined||v===null||v==="")?null:Number(v); }
+  function setSec(which,sid,val){ var st=secStore(which); if(val===null) delete st[sid]; else st[sid]=val; recalcDesdeSecciones(which); }
+  function recalcDesdeSecciones(which){
+    // las secciones de TODAS las cámaras son la fuente de verdad
+    var qd=state.quickDraft; if(!qd) return;
+    var acc={};
+    CAMARAS.forEach(function(cam){
+      if(cam.tipo!=="secciones") return;
+      cam.secciones.forEach(function(s){
+        var m=secMallas(which,s.id);
+        if(m!=null){ var p=secProduct(cam,s); acc[p]=(acc[p]||0)+m; }
+      });
+    });
+    var lista=[];
+    Object.keys(acc).forEach(function(p){
+      lista.push({product:p,mesh:String(acc[p]),kg:String(acc[p]*kgMalla(p))});
+    });
+    qd[which]=lista;
+  }
+  function sacosVal(which){ var qd=state.quickDraft; if(!qd) return null; var v=qd[which==="invInicial"?"sacosIni":"sacosFin"]; return (v===undefined||v===null||v==="")?null:Number(v); }
+  function setSacos(which,v){ var qd=state.quickDraft; qd[which==="invInicial"?"sacosIni":"sacosFin"]=v; }
+  function camaraTotales(which,cam){
+    var acc={},tot=0,totKg=0,llenas=0,conDato=0;
+    if(cam.tipo==="sacos"){
+      var sc=sacosVal(which);
+      return {tot:sc||0,totKg:(sc||0)*KG_SACO,conDato:sc!=null?1:0,llenas:0,esSacos:true};
+    }
+    cam.secciones.forEach(function(s){
+      var m=secMallas(which,s.id);
+      if(m!=null){ conDato++; tot+=m; totKg+=m*kgMalla(secProduct(cam,s)); if(m>=cam.mallasPallet) llenas++; }
+    });
+    return {tot:tot,totKg:totKg,conDato:conDato,llenas:llenas,esSacos:false};
+  }
+  function seccionCell(which,cam,s){
+    var m=secMallas(which,s.id);
+    var full=m!=null&&m>=cam.mallasPallet;
+    var prod=secProduct(cam,s);
+    var col=prodColor(prod);
+    var pct=m!=null?Math.min(100,Math.round(m/cam.mallasPallet*100)):0;
+    var corto=s.id.split("-")[1];
+    return '<button data-sec-which="'+which+'" data-sec-id="'+s.id+'" data-sec-cam="'+cam.id+'" title="'+esc(prod)+' — '+(m!=null?(m+" mallas"):"sin contar")+'" '+
+      'style="position:relative;overflow:hidden;height:70px;border-radius:10px;border:1.5px solid '+(m!=null?col:"var(--ti-line,#DCE3EA)")+';background:'+(full?col:"transparent")+';cursor:pointer;padding:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px">'+
+      (m!=null&&!full?'<div style="position:absolute;left:0;right:0;bottom:0;height:'+pct+'%;background:'+col+';opacity:.28"></div>':'')+
+      '<span style="position:relative;font:700 9px \'Space Grotesk\';letter-spacing:.05em;color:'+(full?"rgba(255,255,255,.9)":"var(--ti-muted,#647787)")+'">'+corto+'</span>'+
+      '<span style="position:relative;font:700 15px \'IBM Plex Mono\';color:'+(full?"#fff":(m!=null?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)"))+'">'+(m!=null?m:"—")+'</span>'+
+      '<span style="position:relative;font:600 8.5px \'Space Grotesk\';color:'+(full?"rgba(255,255,255,.85)":"var(--ti-muted,#647787)")+'">'+(m!=null?"mallas":"vacía")+'</span>'+
+    '</button>';
+  }
+  function camaraBody(which,cam){
+    if(cam.tipo==="sacos"){
+      var sc=sacosVal(which);
+      return '<div style="padding:6px 2px 2px"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+        '<div style="flex:1;min-width:180px"><label style="display:block;font:600 11px \'Space Grotesk\';color:var(--ti-muted,#647787);margin-bottom:5px">Sacos de '+KG_SACO+' kg (cantidad total)</label>'+
+        '<input type="number" min="0" step="1" inputmode="numeric" placeholder="ej. 120" value="'+esc(sc==null?"":sc)+'" data-sacos-which="'+which+'" style="height:52px;font-size:19px;text-align:center;width:100%"></div>'+
+        '<div style="text-align:right"><div style="font:700 24px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt((sc||0)*KG_SACO)+'</div><div style="font:600 10.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">kg totales</div></div>'+
+        '</div><div style="margin-top:8px;font:500 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">Esta cámara no tiene secciones — solo se cuenta el total de sacos.</div></div>';
+    }
+    var grupos={};
+    cam.secciones.forEach(function(s){ var p=secProduct(cam,s); (grupos[p]=grupos[p]||[]).push(s); });
+    var selProd="";
+    if(cam.id==="C3"){
+      var actual=(state.quickDraft&&state.quickDraft.c3Product)||"Original 3 kg";
+      selProd='<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font:600 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">Producto de esta cámara</span>'+
+        '<select data-c3-product="1" style="height:34px;flex:1;max-width:230px">'+activeProducts().map(function(p){ return '<option value="'+esc(p)+'"'+(actual===p?" selected":"")+'>'+esc(p)+'</option>'; }).join("")+'</select></div>';
+    }
+    var html=selProd;
+    Object.keys(grupos).forEach(function(p){
+      var lista=grupos[p], col=prodColor(p);
+      var sub=lista.reduce(function(a,s){ var m=secMallas(which,s.id); return a+(m||0); },0);
+      html+='<div style="margin-bottom:12px"><div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;flex-wrap:wrap"><span style="width:9px;height:9px;border-radius:3px;background:'+col+'"></span><span style="font:700 11.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(p)+'</span><span style="font:600 10.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+lista.length+' secc. · '+cam.mallasPallet+' mallas c/u</span><span style="margin-left:auto;font:700 11.5px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(sub)+' mallas · '+fmt(sub*kgMalla(p))+' kg</span></div>'+
+        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:7px">'+lista.map(function(s){return seccionCell(which,cam,s);}).join("")+'</div></div>';
+    });
+    return html;
+  }
+  function reeferHtml(which){
+    var titulo=which==="invInicial"?"Inventario inicial":"Inventario final";
+    var activa=camara(state.camActiva||"C1");
+    var granTot=0,granKg=0;
+    CAMARAS.forEach(function(c){ var t=camaraTotales(which,c); granTot+=t.tot; granKg+=t.totKg; });
+    var tabs=CAMARAS.map(function(c){
+      var on=c.id===activa.id, t=camaraTotales(which,c);
+      return '<button data-act="camTab" data-cam="'+c.id+'" style="flex:1;min-width:110px;text-align:left;padding:9px 11px;border-radius:11px;cursor:pointer;border:1.5px solid '+(on?"var(--ti-accent,#0E8FD6)":"var(--ti-line,#DCE3EA)")+';background:'+(on?"var(--ti-accent-soft,#E4F2FB)":"var(--ti-surface,#fff)")+'">'+
+        '<div style="font:700 12px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(c.nombre)+'</div>'+
+        '<div style="font:500 9.5px \'Space Grotesk\';color:var(--ti-muted,#647787);margin-top:1px">'+esc(c.sub)+'</div>'+
+        '<div style="margin-top:5px;font:700 11px \'IBM Plex Mono\';color:'+(t.conDato?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+'">'+fmt(t.totKg)+' kg</div>'+
+      '</button>';
+    }).join("");
+    var t=camaraTotales(which,activa);
+    var pie=activa.tipo==="sacos"
+      ? (t.conDato?("Contado: "+fmt(t.tot)+" sacos"):"Sin contar todavía")
+      : (t.conDato+" de "+activa.secciones.length+" secciones contadas · "+t.llenas+" pallet(s) completo(s) de "+activa.mallasPallet+" mallas");
+    return '<div style="border:1.5px solid var(--ti-line,#DCE3EA);border-radius:14px;padding:14px;background:var(--ti-surface2,#F3F6F9)">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap"><span style="font:700 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+titulo+'</span>'+
+      '<span style="margin-left:auto;font:700 12px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">Total 3 cámaras: '+fmt(granKg)+' kg</span></div>'+
+      '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px">'+tabs+'</div>'+
+      '<div style="background:var(--ti-surface,#fff);border:1px solid var(--ti-line,#DCE3EA);border-radius:12px;padding:12px">'+
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap"><span style="font:700 11.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(activa.nombre)+' · '+esc(activa.sub)+'</span>'+
+        (activa.tipo==="secciones"?'<span style="font:600 10.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">toca una sección para marcarla</span>':'')+
+        '<span style="margin-left:auto;font:700 11.5px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+(activa.tipo==="sacos"?(fmt(t.tot)+" sacos"):(fmt(t.tot)+" mallas"))+' · '+fmt(t.totKg)+' kg</span></div>'+
+        camaraBody(which,activa)+
+      '</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:10px;align-items:center"><span style="font:600 10.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+pie+'</span>'+
+      '<button data-act="secClear" data-which="'+which+'" data-cam="'+activa.id+'" style="margin-left:auto;height:30px;padding:0 11px;border-radius:9px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-muted,#647787);font:600 11px \'Space Grotesk\';cursor:pointer">Limpiar cámara</button></div>'+
+    '</div>';
+  }
   function openQuickInv(id){
     if(state.quickEditId===id){ state.quickEditId=null; state.quickDraft=null; render(); return; }
     var s=findShift(id); if(!s) return;
@@ -784,8 +917,12 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     qd.noHubo=true;
     saveQuickDraft();
   }
+  var APPROVE_PIN="1234";
   function approveRegistro(){
     var id=state.quickEditId; var s=findShift(id); var qd=state.quickDraft; if(!s||!qd) return;
+    var pin=prompt("Clave para llevar el turno al calendario:");
+    if(pin===null) return;
+    if(String(pin).trim()!==APPROVE_PIN){ alert("Clave incorrecta. El registro queda guardado, pero no se llevó al calendario."); return; }
     if(!confirm("¿Llevar esto a la tarjeta real del Calendario? Se recalcula la producción del turno con estos datos.")) return;
     openEdit(id);
     var d=state.draft;
@@ -794,6 +931,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     d.attendance=d.attendance||{}; Object.keys(qd.attendance).forEach(function(n){ d.attendance[n]=qd.attendance[n]; });
     d.invInicial=qd.invInicial.slice();
     d.invCounts=qd.invFinal.slice();
+    // Cámara 2 (sacos de 20 kg) -> campos de materia prima del turno
+    if(qd.sacosIni!==undefined&&qd.sacosIni!=="") d.invInicial20={sacos:String(qd.sacosIni),kg:String(Number(qd.sacosIni)*KG_SACO)};
+    if(qd.sacosFin!==undefined&&qd.sacosFin!=="") d.invFinal20={sacos:String(qd.sacosFin),kg:String(Number(qd.sacosFin)*KG_SACO)};
     if(qd.noHubo){
       var obj=buildShift();
       obj.realByProduct=obj.products.map(function(){ return {kg:0,mesh:0}; });
@@ -1707,15 +1847,25 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
               '</div>';
           }).join("");
           var colHead='<div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;padding:0 0 6px"><div></div><div style="font:700 10px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);text-align:center">Inv. inicial</div><div style="font:700 10px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);text-align:center">Inv. final</div></div>';
+          var modoSec=state.invModo==="secciones";
+          var toggle='<div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--ti-line2,#E8EDF2)">'+
+            '<span style="font:700 10px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787)">Inventario</span>'+
+            '<div style="margin-left:auto;display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)">'+
+            '<button data-act="invModo" data-modo="lista" style="height:30px;padding:0 12px;border-radius:8px;border:0;cursor:pointer;font:600 11.5px \'Space Grotesk\';background:'+(!modoSec?"var(--ti-surface,#fff)":"transparent")+';color:'+(!modoSec?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+'">Por producto</button>'+
+            '<button data-act="invModo" data-modo="secciones" style="height:30px;padding:0 12px;border-radius:8px;border:0;cursor:pointer;font:600 11.5px \'Space Grotesk\';background:'+(modoSec?"var(--ti-surface,#fff)":"transparent")+';color:'+(modoSec?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+'">Por secciones <span style="font-size:9px;opacity:.7">BETA</span></button>'+
+            '</div></div>';
+          var invBody=modoSec
+            ? ('<div style="margin-top:12px;display:flex;flex-direction:column;gap:12px">'+reeferHtml("invInicial")+reeferHtml("invFinal")+'</div>')
+            : ('<div style="padding-top:12px">'+colHead+rows+'</div>');
           body='<div style="padding:0 18px 18px;border-top:1px solid var(--ti-line,#DCE3EA)">'+
             namesSection+
-            '<div style="padding-top:14px;margin-top:14px;border-top:1px solid var(--ti-line2,#E8EDF2)">'+colHead+rows+'</div>'+
+            toggle+invBody+
             '<div style="display:flex;gap:10px;margin-top:16px">'+
             '<button class="ti-ghost ti-press" data-act="saveQuickDraft" style="flex:1;height:46px;border-radius:12px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 14px \'Space Grotesk\'">Guardar</button>'+
-            (isFelipe()?'<button class="ti-primary ti-press" data-act="approveRegistro" style="flex:1;height:46px;border-radius:12px;background:var(--ti-accent,#0E8FD6);color:#fff;font:700 14px \'Space Grotesk\'">'+IC.check(15)+' Llevar al calendario</button>':'')+
+            '<button class="ti-primary ti-press" data-act="approveRegistro" title="Requiere clave" style="flex:1;height:46px;border-radius:12px;background:var(--ti-accent,#0E8FD6);color:#fff;font:700 14px \'Space Grotesk\'">'+IC.lock(14)+' Llevar al calendario</button>'+
             '</div>'+
             '<button class="ti-ghost ti-press" data-act="noHubo" style="width:100%;margin-top:10px;height:42px;border-radius:12px;border:1px dashed var(--ti-line,#DCE3EA);background:transparent;color:var(--ti-muted,#647787);font:600 13px \'Space Grotesk\'">No hubo turno — marcar en 0</button>'+
-            (!isFelipe()?'<div style="margin-top:10px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787);text-align:center">Felipe revisa y lo lleva al calendario real.</div>':'')+
+            '<div style="margin-top:10px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787);text-align:center">Guarda tu registro. Llevarlo al calendario requiere clave.</div>'+
             '</div>';
         }
         return '<section style="'+CARD+';overflow:hidden;margin-bottom:14px">'+head+body+'</section>';
@@ -2132,6 +2282,15 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(act==="delete") deleteShift();
     else if(act==="duplicate") duplicateShiftToNextDay();
     else if(act==="quickInv") openQuickInv(btn.getAttribute("data-id"));
+    else if(act==="invModo"){ state.invModo=btn.getAttribute("data-modo"); render(); }
+    else if(act==="camTab"){ state.camActiva=btn.getAttribute("data-cam"); render(); }
+    else if(act==="secClear"){
+      var wc=btn.getAttribute("data-which"), cid=btn.getAttribute("data-cam"), cam=camara(cid);
+      if(!confirm("¿Limpiar lo contado en "+cam.nombre+"?")) return;
+      if(cam.tipo==="sacos"){ setSacos(wc,""); }
+      else { var st=secStore(wc); cam.secciones.forEach(function(s){ delete st[s.id]; }); recalcDesdeSecciones(wc); }
+      render();
+    }
     else if(act==="saveQuickDraft") saveQuickDraft();
     else if(act==="approveRegistro") approveRegistro();
     else if(act==="noHubo") markNoHubo();
@@ -2179,10 +2338,27 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(act==="chooserClose") closeChooser();
     else if(act==="chooserPick") chooserPick(btn.getAttribute("data-id"));
   });
-  root.addEventListener("click",function(e){ var combo=e.target.closest("[data-combo-ids]"); if(combo){ openChooser(combo.getAttribute("data-combo-ids"),e.clientX,e.clientY); } });
+  root.addEventListener("click",function(e){
+    var sec=e.target.closest("[data-sec-id]"); if(sec){
+      var which=sec.getAttribute("data-sec-which"), sid=sec.getAttribute("data-sec-id");
+      var cam=camara(sec.getAttribute("data-sec-cam")||"C1");
+      var actual=secMallas(which,sid);
+      var r=prompt("Sección "+sid+" · "+cam.nombre+"\n\nEscribe las mallas que hay.\nDeja \""+cam.mallasPallet+"\" si el pallet está completo, o vacío para marcarla sin contar.", actual!=null?String(actual):String(cam.mallasPallet));
+      if(r===null) return;
+      r=String(r).trim();
+      if(r===""){ setSec(which,sid,null); } else {
+        var n=Number(r);
+        if(isNaN(n)||n<0){ alert("Escribe un número de mallas válido."); return; }
+        setSec(which,sid,n);
+      }
+      render(); return;
+    }
+    var combo=e.target.closest("[data-combo-ids]"); if(combo){ openChooser(combo.getAttribute("data-combo-ids"),e.clientX,e.clientY); } });
   root.addEventListener("dblclick",function(e){ var col=e.target.closest("[data-daycol]"); if(!col) return; if(e.target.closest("[data-card-id]")||e.target.closest("[data-combo-ids]")) return; onColDbl(col,e); });
   root.addEventListener("mousedown",function(e){ var handle=e.target.closest("[data-resize-id]"); if(handle){ onResizeDown(handle.getAttribute("data-resize-id"),e); return; } var card=e.target.closest("[data-card-id]"); if(card){ onCardDown(card.getAttribute("data-card-id"),e); } });
-  root.addEventListener("input",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-person-idx")){ var pg=t.getAttribute("data-person-group")||""; var pk=pkey(pg); state.draft[pk][+t.getAttribute("data-person-idx")]=t.value; updateComputed(); } else if(t.hasAttribute("data-invini-idx")){ var vi=+t.getAttribute("data-invini-idx"); var vif=t.getAttribute("data-invini-f"); if(!state.draft.invInicial) state.draft.invInicial=[]; if(!state.draft.invInicial[vi]) state.draft.invInicial[vi]={mesh:"",kg:""}; state.draft.invInicial[vi][vif]=t.value; if(vif==="mesh") autoKgInvIni(vi); updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="mesh") autoKgProd(pi); updateComputed(); } else if(t.hasAttribute("data-invclose-idx")){ var ii=+t.getAttribute("data-invclose-idx"); var iif=t.getAttribute("data-invclose-f"); if(!state.draft.invCounts) state.draft.invCounts=[]; if(!state.draft.invCounts[ii]) state.draft.invCounts[ii]={mesh:"",kg:""}; state.draft.invCounts[ii][iif]=t.value; if(iif==="mesh") autoKgInvFinal(ii); updateComputed(); } else if(t.hasAttribute("data-saco20-tag")){ var s20tag=t.getAttribute("data-saco20-tag"); var s20f=t.getAttribute("data-saco20-f"); var s20key=s20tag==="ini"?"invInicial20":"invFinal20"; if(!state.draft[s20key]) state.draft[s20key]={sacos:"",kg:""}; state.draft[s20key][s20f]=t.value; if(s20f==="sacos") autoKgSaco20(s20tag); updateComputed(); } else if(t.hasAttribute("data-cfg-prod")){ config.bagStock[t.getAttribute("data-cfg-prod")]=t.value; } else if(t.hasAttribute("data-cfg-num")){ config[t.getAttribute("data-cfg-num")]=t.value; } else if(t.hasAttribute("data-cfg-list")){ var lk=t.getAttribute("data-cfg-list"); var cf=lk==="roster"?"roster":(lk==="defA"?"defaultGroupA":"defaultGroupB"); if(!config[cf])config[cf]=[]; config[cf][+t.getAttribute("data-cfg-idx")]=t.value; } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="mesh"){ var fac=kgMalla(state.invDraft.product); if(fac>0){ state.invDraft.qty=(t.value===""?"":String(Number(t.value||0)*fac)); var qe=root.querySelector('[data-inv-f="qty"]'); if(qe){ qe.value=state.invDraft.qty; qe.readOnly=true; } } } } else if(t.hasAttribute("data-salrow-idx")){ var sri=+t.getAttribute("data-salrow-idx"); var srf=t.getAttribute("data-salrow-f"); if(!state.draft.salidasCount) state.draft.salidasCount=[]; if(!state.draft.salidasCount[sri]) state.draft.salidasCount[sri]={mesh:"",kg:""}; state.draft.salidasCount[sri][srf]=t.value; if(srf==="mesh") autoKgSalRow(sri); updateComputed(); } else if(t.hasAttribute("data-metaquick-f")){ if(!state.metaQuick) state.metaQuick={product:activeProducts()[0]||"Original 3 kg",mesh:"",kg:""}; var mqf=t.getAttribute("data-metaquick-f"); state.metaQuick[mqf]=t.value; if(mqf==="mesh"){ var mqfac=kgMalla(state.metaQuick.product); if(mqfac>0){ state.metaQuick.kg=(t.value===""?"":String(Number(t.value||0)*mqfac)); var mqke=root.querySelector('[data-metaquick-f="kg"]'); if(mqke){ mqke.value=state.metaQuick.kg; mqke.readOnly=true; } } } else if(mqf==="product"){ render(); } } else if(t.hasAttribute("data-metaday-iso")){ var mdIso=t.getAttribute("data-metaday-iso"), mdProd=t.getAttribute("data-metaday-product"), mdF=t.getAttribute("data-metaday-f"); if(mdF==="mesh"){ var mdFac=kgMalla(mdProd); if(mdFac>0){ var kgv=(t.value===""?"":String(Number(t.value||0)*mdFac)); var kgEl=root.querySelector('[data-metadaykgof="'+mdIso+'|'+mdProd+'"]'); if(kgEl){ kgEl.value=kgv; kgEl.readOnly=true; } } } } else if(t.hasAttribute("data-sal-f")){ var sf=t.getAttribute("data-sal-f"); state.salDraft[sf]=t.value; if(sf==="mesh"){ var sfac=kgMalla(state.salDraft.product); if(sfac>0){ state.salDraft.kg=(t.value===""?"":String(Number(t.value||0)*sfac)); var ske=root.querySelector('[data-sal-f="kg"]'); if(ske){ ske.value=state.salDraft.kg; ske.readOnly=true; } } } } else if(t.hasAttribute("data-payr-name")){ autoPayRow(t.getAttribute("data-payr-name")); } else if(t.hasAttribute("data-payx-name")){ autoPayRow(t.getAttribute("data-payx-name")); } else if(t.hasAttribute("data-compra-f")){ if(!state.compraDraft) state.compraDraft={}; state.compraDraft[t.getAttribute("data-compra-f")]=t.value; } else if(t.hasAttribute("data-quickadd-f")){ if(!state.quickAddDraft) state.quickAddDraft={}; state.quickAddDraft[t.getAttribute("data-quickadd-f")]=t.value; } else if(t.hasAttribute("data-quickname-f")){ state.quickNameDraft=t.value; } else if(t.hasAttribute("data-qinv-product")){ var qw=t.getAttribute("data-qinv-which"), qp=t.getAttribute("data-qinv-product"); var qfac=kgMalla(qp); var qkg=(t.value===""?"":String(Number(t.value||0)*qfac)); var qlist=state.quickDraft[qw]||[]; var qfound=false; qlist=qlist.map(function(r){ if(r&&r.product===qp){ qfound=true; return {product:qp,mesh:t.value,kg:qkg}; } return r; }); if(!qfound) qlist.push({product:qp,mesh:t.value,kg:qkg}); state.quickDraft[qw]=qlist; } });
+  root.addEventListener("input",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-person-idx")){ var pg=t.getAttribute("data-person-group")||""; var pk=pkey(pg); state.draft[pk][+t.getAttribute("data-person-idx")]=t.value; updateComputed(); } else if(t.hasAttribute("data-invini-idx")){ var vi=+t.getAttribute("data-invini-idx"); var vif=t.getAttribute("data-invini-f"); if(!state.draft.invInicial) state.draft.invInicial=[]; if(!state.draft.invInicial[vi]) state.draft.invInicial[vi]={mesh:"",kg:""}; state.draft.invInicial[vi][vif]=t.value; if(vif==="mesh") autoKgInvIni(vi); updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="mesh") autoKgProd(pi); updateComputed(); } else if(t.hasAttribute("data-invclose-idx")){ var ii=+t.getAttribute("data-invclose-idx"); var iif=t.getAttribute("data-invclose-f"); if(!state.draft.invCounts) state.draft.invCounts=[]; if(!state.draft.invCounts[ii]) state.draft.invCounts[ii]={mesh:"",kg:""}; state.draft.invCounts[ii][iif]=t.value; if(iif==="mesh") autoKgInvFinal(ii); updateComputed(); } else if(t.hasAttribute("data-saco20-tag")){ var s20tag=t.getAttribute("data-saco20-tag"); var s20f=t.getAttribute("data-saco20-f"); var s20key=s20tag==="ini"?"invInicial20":"invFinal20"; if(!state.draft[s20key]) state.draft[s20key]={sacos:"",kg:""}; state.draft[s20key][s20f]=t.value; if(s20f==="sacos") autoKgSaco20(s20tag); updateComputed(); } else if(t.hasAttribute("data-cfg-prod")){ config.bagStock[t.getAttribute("data-cfg-prod")]=t.value; } else if(t.hasAttribute("data-cfg-num")){ config[t.getAttribute("data-cfg-num")]=t.value; } else if(t.hasAttribute("data-cfg-list")){ var lk=t.getAttribute("data-cfg-list"); var cf=lk==="roster"?"roster":(lk==="defA"?"defaultGroupA":"defaultGroupB"); if(!config[cf])config[cf]=[]; config[cf][+t.getAttribute("data-cfg-idx")]=t.value; } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="mesh"){ var fac=kgMalla(state.invDraft.product); if(fac>0){ state.invDraft.qty=(t.value===""?"":String(Number(t.value||0)*fac)); var qe=root.querySelector('[data-inv-f="qty"]'); if(qe){ qe.value=state.invDraft.qty; qe.readOnly=true; } } } } else if(t.hasAttribute("data-salrow-idx")){ var sri=+t.getAttribute("data-salrow-idx"); var srf=t.getAttribute("data-salrow-f"); if(!state.draft.salidasCount) state.draft.salidasCount=[]; if(!state.draft.salidasCount[sri]) state.draft.salidasCount[sri]={mesh:"",kg:""}; state.draft.salidasCount[sri][srf]=t.value; if(srf==="mesh") autoKgSalRow(sri); updateComputed(); } else if(t.hasAttribute("data-metaquick-f")){ if(!state.metaQuick) state.metaQuick={product:activeProducts()[0]||"Original 3 kg",mesh:"",kg:""}; var mqf=t.getAttribute("data-metaquick-f"); state.metaQuick[mqf]=t.value; if(mqf==="mesh"){ var mqfac=kgMalla(state.metaQuick.product); if(mqfac>0){ state.metaQuick.kg=(t.value===""?"":String(Number(t.value||0)*mqfac)); var mqke=root.querySelector('[data-metaquick-f="kg"]'); if(mqke){ mqke.value=state.metaQuick.kg; mqke.readOnly=true; } } } else if(mqf==="product"){ render(); } } else if(t.hasAttribute("data-metaday-iso")){ var mdIso=t.getAttribute("data-metaday-iso"), mdProd=t.getAttribute("data-metaday-product"), mdF=t.getAttribute("data-metaday-f"); if(mdF==="mesh"){ var mdFac=kgMalla(mdProd); if(mdFac>0){ var kgv=(t.value===""?"":String(Number(t.value||0)*mdFac)); var kgEl=root.querySelector('[data-metadaykgof="'+mdIso+'|'+mdProd+'"]'); if(kgEl){ kgEl.value=kgv; kgEl.readOnly=true; } } } } else if(t.hasAttribute("data-sal-f")){ var sf=t.getAttribute("data-sal-f"); state.salDraft[sf]=t.value; if(sf==="mesh"){ var sfac=kgMalla(state.salDraft.product); if(sfac>0){ state.salDraft.kg=(t.value===""?"":String(Number(t.value||0)*sfac)); var ske=root.querySelector('[data-sal-f="kg"]'); if(ske){ ske.value=state.salDraft.kg; ske.readOnly=true; } } } } else if(t.hasAttribute("data-payr-name")){ autoPayRow(t.getAttribute("data-payr-name")); } else if(t.hasAttribute("data-payx-name")){ autoPayRow(t.getAttribute("data-payx-name")); } else if(t.hasAttribute("data-compra-f")){ if(!state.compraDraft) state.compraDraft={}; state.compraDraft[t.getAttribute("data-compra-f")]=t.value; } else if(t.hasAttribute("data-quickadd-f")){ if(!state.quickAddDraft) state.quickAddDraft={}; state.quickAddDraft[t.getAttribute("data-quickadd-f")]=t.value; } else if(t.hasAttribute("data-quickname-f")){ state.quickNameDraft=t.value; }
+    else if(t.hasAttribute("data-sacos-which")){ setSacos(t.getAttribute("data-sacos-which"),t.value); }
+    else if(t.hasAttribute("data-c3-product")){ state.quickDraft.c3Product=t.value; recalcDesdeSecciones("invInicial"); recalcDesdeSecciones("invFinal"); render(); } else if(t.hasAttribute("data-qinv-product")){ var qw=t.getAttribute("data-qinv-which"), qp=t.getAttribute("data-qinv-product"); var qfac=kgMalla(qp); var qkg=(t.value===""?"":String(Number(t.value||0)*qfac)); var qlist=state.quickDraft[qw]||[]; var qfound=false; qlist=qlist.map(function(r){ if(r&&r.product===qp){ qfound=true; return {product:qp,mesh:t.value,kg:qkg}; } return r; }); if(!qfound) qlist.push({product:qp,mesh:t.value,kg:qkg}); state.quickDraft[qw]=qlist; } });
   root.addEventListener("blur",function(e){ var t=e.target; if(!t||!t.hasAttribute) return; if(t.hasAttribute("data-salrow-idx")) salRowCommit(+t.getAttribute("data-salrow-idx")); else if(t.hasAttribute("data-payr-name")) payRateCommit(t.getAttribute("data-payr-name")); else if(t.hasAttribute("data-payx-name")) payExtraCommit(t.getAttribute("data-payx-name")); else if(t.hasAttribute("data-extrahours-key")) extraHoursPersonCommit(t.getAttribute("data-extrahours-key")); else if(t.hasAttribute("data-metaday-iso")){ var miso=t.getAttribute("data-metaday-iso"), mprod=t.getAttribute("data-metaday-product"); var meshEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="mesh"]'); var kgEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="kg"]'); var meshV=meshEl?meshEl.value:""; var kgV=kgEl?kgEl.value:""; var kgN=(kgV!==""&&!isNaN(Number(kgV)))?Number(kgV):0; var meshN=(meshV!==""&&!isNaN(Number(meshV)))?Number(meshV):null; metaCommit(miso,mprod,kgN,meshN); render(); } },true);
   root.addEventListener("change",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="product"){ autoKgProd(pi); render(); } else { if(pf==="mesh") autoKgProd(pi); updateComputed(); } } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="date"||iff==="shiftId"||iff==="product") render(); } else if(t.hasAttribute("data-sal-f")){ var slf=t.getAttribute("data-sal-f"); state.salDraft[slf]=t.value; if(slf==="date"||slf==="product") render(); } else if(t.hasAttribute("data-rep-f")){ var rff=t.getAttribute("data-rep-f"); if(rff==="from") state.repFrom=t.value; else if(rff==="to") state.repTo=t.value; else if(rff==="altaDemanda") state.repAltaDemandaTon=Number(t.value||30); render(); } });
   document.addEventListener("keydown",function(e){ if(e.key==="Escape"){ if(state.daySummaryIso){ state.daySummaryIso=null; render(); } else if(state.chooser) closeChooser(); else if(state.drawerOpen) closeDrawer(); } });
