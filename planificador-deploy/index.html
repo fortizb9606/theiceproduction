@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-28-tipos-persona-config -->
+<!-- BUILD-MARK: 2026-08-28-sync-dotacion-config -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -255,13 +255,16 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   var ANCHOR_MS=(function(){ var d=new Date(2026,6,27); d.setHours(0,0,0,0); return d.getTime(); })();
   var GRUPO_A_NAMES=["Nicole Iglesia","Santiago Valderrama","Kevin Giraldo",""]; // Grupo A = 4
   var GRUPO_B_NAMES=["","",""];                                                  // Grupo B = 3 (pendientes)
-  // turnos editables del calendario: Lun-Vie = 1 Turno AM de todo el equipo 07:00-16:00;
-  // Sábado = 1 solo turno corto 08:30-12:30, mismo equipo full time
+  // turnos editables del calendario (28-ago-2026):
+  //   AM        Lun-Vie 07:00-16:00 · Sáb 08:30-12:30
+  //   Extensión todos los días incluido sábado, 16:00-21:30
+  //   Noche/PM  Lun-Vie 22:00-06:30
   // (27-ago-2026: se dejó de separar Vie/Sáb en dos grupos escalonados A y B)
   var TEMPLATE=[
-    {group:"am", days:[0,1,2,3,4], start:"07:00", end:"16:00", title:"Turno AM"},
-    {group:"am", days:[5],         start:"08:30", end:"12:30", title:"Turno AM"},
-    {group:"night", days:[0,1,2,3], start:"22:00", end:"06:30", title:"Turno Noche"}
+    {group:"am",     days:[0,1,2,3,4],   start:"07:00", end:"16:00", title:"Turno AM"},
+    {group:"am",     days:[5],           start:"08:30", end:"12:30", title:"Turno AM"},
+    {group:"custom", days:[0,1,2,3,4,5], start:"16:00", end:"21:30", title:"Extensión"},
+    {group:"night",  days:[0,1,2,3,4],   start:"22:00", end:"06:30", title:"Turno Noche"}
   ];
   // patrón fijo de referencia para la vista Grupos (A y B toda la semana)
   var GRUPOS_PATTERN=[
@@ -536,6 +539,34 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var tEl=root.querySelector('[data-payrtotalof="'+name.replace(/"/g,'\\"')+'"]'); if(tEl) tEl.textContent="$"+fmt(liquido*turnos+extra);
   }
   function persistCfg(){ try{ localStorage.setItem(CFG_KEY,JSON.stringify(config)); }catch(e){} }
+  /* Sincroniza la dotación de los turnos FUTUROS abiertos con lo configurado:
+     AM = full time AM + part time · Extensión = full time extensión · Noche = full time PM.
+     Nunca toca turnos cerrados ni días pasados (ahí la asistencia ya es histórica). */
+  function syncRostersFromConfig(){
+    var hoy=isoDate(new Date());
+    var roster=(config.roster||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
+    var porTipo=function(k){ return roster.filter(function(n){ return rosterTipo(n)===k; }); };
+    var fullAM=porTipo("full_am"), fullExt=porTipo("full_ext"), fullPM=porTipo("full_pm"), parts=porTipo("part");
+    var cambiados=[];
+    state.shifts.forEach(function(s){
+      if(s.closed) return;
+      if(!s.date||s.date<hoy) return;
+      var antes=JSON.stringify([s.groupA,s.groupB,s.groupPT,s.people]);
+      var esNoche=s.type==="night"||/noche/i.test(s.title||"");
+      var esExt=!esNoche&&(s.type==="custom"||/extensi/i.test(s.title||""));
+      if(esNoche){ s.people=fullPM.slice(); s.groupA=[]; s.groupB=[]; s.groupPT=[]; }
+      else if(esExt){ s.people=fullExt.slice(); s.groupA=[]; s.groupB=[]; s.groupPT=[]; }
+      else { s.groupA=fullAM.slice(); s.groupB=[]; s.groupPT=parts.slice(); s.people=[]; }
+      // limpiar asistencia de gente que ya no está en el turno
+      if(s.attendance){
+        var vivos={}; [].concat(s.groupA||[],s.groupPT||[],s.people||[]).forEach(function(n){ vivos[n]=1; });
+        Object.keys(s.attendance).forEach(function(n){ if(!vivos[n]) delete s.attendance[n]; });
+      }
+      if(JSON.stringify([s.groupA,s.groupB,s.groupPT,s.people])!==antes) cambiados.push(s);
+    });
+    if(cambiados.length){ persist(); cambiados.forEach(function(s){ cloudSet('shifts',s); }); }
+    return cambiados.length;
+  }
   /* ---- puente de sincronización en la nube (Firestore · opcional, ver firebase-sync.js) ---- */
   function cloudOn(){ return !!(window.TICloud&&window.TICloud.ready); }
   function cloudSet(kind,obj){ if(cloudOn()){ try{ window.TICloud.set(kind,obj); }catch(e){} } }
@@ -2340,9 +2371,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(act==="salDelete") salDelete(btn.getAttribute("data-id"));
     else if(act==="salSync") syncSalidas();
     else if(act==="resetData") resetData();
-    else if(act==="cfgSave"){ persistCfg(); cloudSet('config',config); render(); }
+    else if(act==="cfgSave"){ persistCfg(); cloudSet('config',config); var n=syncRostersFromConfig(); render(); alert(n?("Configuración guardada. Se actualizó la dotación de "+n+" turno(s) de hoy en adelante."):"Configuración guardada."); }
     else if(act==="cfgAdd") cfgAdd(btn.getAttribute("data-list"));
-    else if(act==="cfgRemove") cfgRemove(btn.getAttribute("data-list"),+btn.getAttribute("data-idx"));
+    else if(act==="cfgRemove"){ cfgRemove(btn.getAttribute("data-list"),+btn.getAttribute("data-idx")); syncRostersFromConfig(); render(); }
     else if(act==="cfgApplyGroups") cfgApplyGroups();
     else if(act==="cfgToggleProduct"){ var pName=btn.getAttribute("data-product"); if(!config.inactiveProducts) config.inactiveProducts=[]; var ix=config.inactiveProducts.indexOf(pName); if(ix>=0) config.inactiveProducts.splice(ix,1); else config.inactiveProducts.push(pName); render(); }
 
@@ -2370,7 +2401,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   root.addEventListener("dblclick",function(e){ var col=e.target.closest("[data-daycol]"); if(!col) return; if(e.target.closest("[data-card-id]")||e.target.closest("[data-combo-ids]")) return; onColDbl(col,e); });
   root.addEventListener("mousedown",function(e){ var handle=e.target.closest("[data-resize-id]"); if(handle){ onResizeDown(handle.getAttribute("data-resize-id"),e); return; } var card=e.target.closest("[data-card-id]"); if(card){ onCardDown(card.getAttribute("data-card-id"),e); } });
   root.addEventListener("input",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-person-idx")){ var pg=t.getAttribute("data-person-group")||""; var pk=pkey(pg); state.draft[pk][+t.getAttribute("data-person-idx")]=t.value; updateComputed(); } else if(t.hasAttribute("data-invini-idx")){ var vi=+t.getAttribute("data-invini-idx"); var vif=t.getAttribute("data-invini-f"); if(!state.draft.invInicial) state.draft.invInicial=[]; if(!state.draft.invInicial[vi]) state.draft.invInicial[vi]={mesh:"",kg:""}; state.draft.invInicial[vi][vif]=t.value; if(vif==="mesh") autoKgInvIni(vi); updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="mesh") autoKgProd(pi); updateComputed(); } else if(t.hasAttribute("data-invclose-idx")){ var ii=+t.getAttribute("data-invclose-idx"); var iif=t.getAttribute("data-invclose-f"); if(!state.draft.invCounts) state.draft.invCounts=[]; if(!state.draft.invCounts[ii]) state.draft.invCounts[ii]={mesh:"",kg:""}; state.draft.invCounts[ii][iif]=t.value; if(iif==="mesh") autoKgInvFinal(ii); updateComputed(); } else if(t.hasAttribute("data-saco20-tag")){ var s20tag=t.getAttribute("data-saco20-tag"); var s20f=t.getAttribute("data-saco20-f"); var s20key=s20tag==="ini"?"invInicial20":"invFinal20"; if(!state.draft[s20key]) state.draft[s20key]={sacos:"",kg:""}; state.draft[s20key][s20f]=t.value; if(s20f==="sacos") autoKgSaco20(s20tag); updateComputed(); } else if(t.hasAttribute("data-cfg-prod")){ config.bagStock[t.getAttribute("data-cfg-prod")]=t.value; } else if(t.hasAttribute("data-cfg-num")){ config[t.getAttribute("data-cfg-num")]=t.value; } else if(t.hasAttribute("data-cfg-list")){ var lk=t.getAttribute("data-cfg-list"); var cf=lk==="roster"?"roster":(lk==="defA"?"defaultGroupA":"defaultGroupB"); if(!config[cf])config[cf]=[]; config[cf][+t.getAttribute("data-cfg-idx")]=t.value; } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="mesh"){ var fac=kgMalla(state.invDraft.product); if(fac>0){ state.invDraft.qty=(t.value===""?"":String(Number(t.value||0)*fac)); var qe=root.querySelector('[data-inv-f="qty"]'); if(qe){ qe.value=state.invDraft.qty; qe.readOnly=true; } } } } else if(t.hasAttribute("data-salrow-idx")){ var sri=+t.getAttribute("data-salrow-idx"); var srf=t.getAttribute("data-salrow-f"); if(!state.draft.salidasCount) state.draft.salidasCount=[]; if(!state.draft.salidasCount[sri]) state.draft.salidasCount[sri]={mesh:"",kg:""}; state.draft.salidasCount[sri][srf]=t.value; if(srf==="mesh") autoKgSalRow(sri); updateComputed(); } else if(t.hasAttribute("data-metaquick-f")){ if(!state.metaQuick) state.metaQuick={product:activeProducts()[0]||"Original 3 kg",mesh:"",kg:""}; var mqf=t.getAttribute("data-metaquick-f"); state.metaQuick[mqf]=t.value; if(mqf==="mesh"){ var mqfac=kgMalla(state.metaQuick.product); if(mqfac>0){ state.metaQuick.kg=(t.value===""?"":String(Number(t.value||0)*mqfac)); var mqke=root.querySelector('[data-metaquick-f="kg"]'); if(mqke){ mqke.value=state.metaQuick.kg; mqke.readOnly=true; } } } else if(mqf==="product"){ render(); } } else if(t.hasAttribute("data-metaday-iso")){ var mdIso=t.getAttribute("data-metaday-iso"), mdProd=t.getAttribute("data-metaday-product"), mdF=t.getAttribute("data-metaday-f"); if(mdF==="mesh"){ var mdFac=kgMalla(mdProd); if(mdFac>0){ var kgv=(t.value===""?"":String(Number(t.value||0)*mdFac)); var kgEl=root.querySelector('[data-metadaykgof="'+mdIso+'|'+mdProd+'"]'); if(kgEl){ kgEl.value=kgv; kgEl.readOnly=true; } } } } else if(t.hasAttribute("data-sal-f")){ var sf=t.getAttribute("data-sal-f"); state.salDraft[sf]=t.value; if(sf==="mesh"){ var sfac=kgMalla(state.salDraft.product); if(sfac>0){ state.salDraft.kg=(t.value===""?"":String(Number(t.value||0)*sfac)); var ske=root.querySelector('[data-sal-f="kg"]'); if(ske){ ske.value=state.salDraft.kg; ske.readOnly=true; } } } } else if(t.hasAttribute("data-payr-name")){ autoPayRow(t.getAttribute("data-payr-name")); } else if(t.hasAttribute("data-payx-name")){ autoPayRow(t.getAttribute("data-payx-name")); } else if(t.hasAttribute("data-compra-f")){ if(!state.compraDraft) state.compraDraft={}; state.compraDraft[t.getAttribute("data-compra-f")]=t.value; } else if(t.hasAttribute("data-quickadd-f")){ if(!state.quickAddDraft) state.quickAddDraft={}; state.quickAddDraft[t.getAttribute("data-quickadd-f")]=t.value; } else if(t.hasAttribute("data-quickname-f")){ state.quickNameDraft=t.value; }
-    else if(t.hasAttribute("data-cfg-rostertype")){ var rn=t.getAttribute("data-cfg-rostertype"); if(!config.rosterType) config.rosterType={}; config.rosterType[rn]=t.value; persistCfg(); cloudSet('config',config); render(); }
+    else if(t.hasAttribute("data-cfg-rostertype")){ var rn=t.getAttribute("data-cfg-rostertype"); if(!config.rosterType) config.rosterType={}; config.rosterType[rn]=t.value; persistCfg(); cloudSet('config',config); syncRostersFromConfig(); render(); }
     else if(t.hasAttribute("data-sacos-which")){ setSacos(t.getAttribute("data-sacos-which"),t.value); }
     else if(t.hasAttribute("data-c3-product")){ state.quickDraft.c3Product=t.value; recalcDesdeSecciones("invInicial"); recalcDesdeSecciones("invFinal"); render(); } else if(t.hasAttribute("data-qinv-product")){ var qw=t.getAttribute("data-qinv-which"), qp=t.getAttribute("data-qinv-product"); var qfac=kgMalla(qp); var qkg=(t.value===""?"":String(Number(t.value||0)*qfac)); var qlist=state.quickDraft[qw]||[]; var qfound=false; qlist=qlist.map(function(r){ if(r&&r.product===qp){ qfound=true; return {product:qp,mesh:t.value,kg:qkg}; } return r; }); if(!qfound) qlist.push({product:qp,mesh:t.value,kg:qkg}); state.quickDraft[qw]=qlist; } });
   root.addEventListener("blur",function(e){ var t=e.target; if(!t||!t.hasAttribute) return; if(t.hasAttribute("data-salrow-idx")) salRowCommit(+t.getAttribute("data-salrow-idx")); else if(t.hasAttribute("data-payr-name")) payRateCommit(t.getAttribute("data-payr-name")); else if(t.hasAttribute("data-payx-name")) payExtraCommit(t.getAttribute("data-payx-name")); else if(t.hasAttribute("data-extrahours-key")) extraHoursPersonCommit(t.getAttribute("data-extrahours-key")); else if(t.hasAttribute("data-metaday-iso")){ var miso=t.getAttribute("data-metaday-iso"), mprod=t.getAttribute("data-metaday-product"); var meshEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="mesh"]'); var kgEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="kg"]'); var meshV=meshEl?meshEl.value:""; var kgV=kgEl?kgEl.value:""; var kgN=(kgV!==""&&!isNaN(Number(kgV)))?Number(kgV):0; var meshN=(meshV!==""&&!isNaN(Number(meshV)))?Number(meshV):null; metaCommit(miso,mprod,kgN,meshN); render(); } },true);
