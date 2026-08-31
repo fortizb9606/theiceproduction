@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-31-quien-va-en-cada-turno -->
+<!-- BUILD-MARK: 2026-08-31-lista-nombres -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,6 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
+  var APP_BUILD="2026-08-31-lista-nombres";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -975,7 +976,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function quickAddName(){
     var qd=state.quickDraft;
     var name=(state.quickNameDraft||"").trim();
-    if(!name) return;
+    if(!name){ alert("Elige una persona de la lista."); return; }
+    var activos=(config.roster||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
+    if(activos.indexOf(name)<0){ alert("\""+name+"\" no está en Personas activas.\n\nPídele al administrador que la agregue en Configuración → Personas activas y vuelve a intentarlo."); return; }
     if(qd.names.indexOf(name)>=0){ state.quickNameDraft=""; render(); return; }
     qd.names.push(name); qd.attendance[name]="presente";
     state.quickNameDraft=""; render();
@@ -1911,7 +1914,16 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
               '</div>';
           }).join("")||'<div style="padding:10px 0;font:500 13px \'Space Grotesk\';color:var(--ti-muted,#647787)">Todavía no hay nadie anotado en este turno.</div>';
           var namesSection='<div style="padding-top:14px"><div style="font:700 10px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);margin-bottom:2px">Quién estuvo (toca para marcar presente/ausente)</div>'+namesRows+
-            '<div style="display:flex;gap:8px;margin-top:12px"><input type="text" placeholder="Agregar nombre" value="'+esc(state.quickNameDraft||"")+'" data-quickname-f="1" style="flex:1;height:42px"><button class="ti-ghost ti-press" data-act="quickAddName" style="height:42px;padding:0 16px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13px \'Space Grotesk\'">'+IC.plus(15)+'</button></div></div>';
+            (function(){
+              // solo se puede sumar gente que exista en Configuración → Personas activas
+              var activos=(config.roster||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
+              var disp=activos.filter(function(n){ return (qd.names||[]).indexOf(n)<0; });
+              if(!disp.length) return '<div style="margin-top:12px;font:500 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">Ya están todas las personas activas en este turno. Si falta alguien, pídele al administrador que la agregue en Configuración.</div>';
+              return '<div style="display:flex;gap:8px;margin-top:12px"><select data-quickname-f="1" style="flex:1;height:42px"><option value="">Agregar persona…</option>'+
+                disp.map(function(n){ return '<option value="'+esc(n)+'"'+((state.quickNameDraft||"")===n?" selected":"")+'>'+esc(n)+(esPartTime(n)?" (part time)":"")+'</option>'; }).join("")+
+                '</select><button class="ti-ghost ti-press" data-act="quickAddName" style="height:42px;padding:0 16px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13px \'Space Grotesk\'">'+IC.plus(15)+'</button></div>'+
+                '<div style="margin-top:7px;font:500 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">¿Falta alguien en la lista? Pídele al administrador que la agregue en Configuración → Personas activas.</div>';
+            })()+'</div>';
           var rows=(s.products||[]).map(function(p){
             var name=p.product;
             var iniEntry=(qd.invInicial||[]).filter(function(r){return r&&r.product===name;})[0]||{};
@@ -2223,7 +2235,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var bottomNav='<nav class="ti-bottomnav" data-noprint>'+bnavItem("calendario","Calendario",IC.cal(19))+bnavItem("registro","Registro",IC.check(19))+bnavItem("grupos","Pagos",IC.rows(19))+bnavItem("inventario","Inventario",IC.box(19))+bnavItem("compras","Compras",IC.cart(19))+bnavItem("metas","Metas",IC.meta(19))+bnavItem("reportes","Reportes",IC.chart(19))+bnavItem("config","Config",IC.gear(19))+'</nav>';
     var fabDay=isoList&&isoList.length?isoList[0]:isoDate(new Date());
     var fabMobile=(state.view==="calendario"&&!state.drawerOpen)?('<button class="ti-fab-mobile ti-press" data-act="fabnew" data-iso="'+fabDay+'" aria-label="Nuevo turno" data-noprint>'+IC.plus(24)+'</button>'):"";
-    var sidebar='<aside class="ti-sidebar" data-noprint><div class="ti-brand"><div class="ti-brand-mark"><div style="width:19px;height:19px;border-radius:50%;border:2.4px solid #fff;display:grid;place-items:center"><div style="width:6px;height:6px;border-radius:50%;background:#fff"></div></div></div><div><div class="ti-brand-kicker">THE ICE</div><div class="ti-brand-title">Producción</div></div></div>'+miniCalHtml()+'<div class="ti-navwrap" data-scroll><div class="ti-nav-label">Planificación</div>'+navItem("calendario","Calendario",IC.cal(18))+navItem("grupos","Planilla de pagos",IC.rows(18))+'<div class="ti-nav-label">Operación</div>'+navItem("registro","Registro de turno",IC.check(18))+navItem("inventario","Inventario",IC.box(18))+navItem("compras","Compras",IC.cart(18))+navItem("metas","Metas",IC.meta(18))+'<div class="ti-nav-label">Análisis</div>'+navItem("reportes","Reportes",IC.chart(18))+'<div class="ti-nav-label">Sistema</div>'+navItem("config","Configuración",IC.gear(18))+'</div><div class="ti-navfoot"><div style="font:700 10px \'Space Grotesk\';letter-spacing:.16em;color:var(--ti-nav-label,#5E747B)">DATOS AL</div><div style="margin-top:4px;font:600 13px \'IBM Plex Mono\';color:var(--ti-nav-text,#E2ECEF);font-variant-numeric:tabular-nums">'+todayStr+'</div></div></aside>';
+    var sidebar='<aside class="ti-sidebar" data-noprint><div class="ti-brand"><div class="ti-brand-mark"><div style="width:19px;height:19px;border-radius:50%;border:2.4px solid #fff;display:grid;place-items:center"><div style="width:6px;height:6px;border-radius:50%;background:#fff"></div></div></div><div><div class="ti-brand-kicker">THE ICE</div><div class="ti-brand-title">Producción</div></div></div>'+miniCalHtml()+'<div class="ti-navwrap" data-scroll><div class="ti-nav-label">Planificación</div>'+navItem("calendario","Calendario",IC.cal(18))+navItem("grupos","Planilla de pagos",IC.rows(18))+'<div class="ti-nav-label">Operación</div>'+navItem("registro","Registro de turno",IC.check(18))+navItem("inventario","Inventario",IC.box(18))+navItem("compras","Compras",IC.cart(18))+navItem("metas","Metas",IC.meta(18))+'<div class="ti-nav-label">Análisis</div>'+navItem("reportes","Reportes",IC.chart(18))+'<div class="ti-nav-label">Sistema</div>'+navItem("config","Configuración",IC.gear(18))+'</div><div class="ti-navfoot"><div style="font:700 10px \'Space Grotesk\';letter-spacing:.16em;color:var(--ti-nav-label,#5E747B)">DATOS AL</div><div style="margin-top:4px;font:600 13px \'IBM Plex Mono\';color:var(--ti-nav-text,#E2ECEF);font-variant-numeric:tabular-nums">'+todayStr+'</div><div style="margin-top:8px;font:600 9.5px \'IBM Plex Mono\';color:var(--ti-nav-label,#5E747B)">v '+APP_BUILD+'</div></div></aside>';
 
     /* ---------- topbar ---------- */
     var themeMeta=[{key:"glaciar",label:"Glaciar",dot:"#0E8FD6"},{key:"vapor",label:"Vapor",dot:"#C6721E"},{key:"medianoche",label:"Medianoche",dot:"#38B2F2"}];
@@ -2233,11 +2245,12 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var showWeek=state.view==="calendario"||state.view==="grupos"||state.view==="metas";
     var calToggle=""; if(state.view==="calendario"){ var cb=function(m,l){ var on=state.calMode===m; return '<button class="ti-hbtn ti-press" data-act="calmode" data-mode="'+m+'" aria-pressed="'+on+'" style="height:34px;padding:0 13px;border-radius:9px;font:600 12.5px \'Space Grotesk\';background:'+(on?"var(--ti-surface,#fff)":"transparent")+';color:'+(on?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+';box-shadow:'+(on?"0 2px 8px rgba(20,32,43,.12)":"none")+'">'+l+'</button>'; }; calToggle='<div style="display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)">'+cb("semana","Semana")+cb("mes","Mes")+'</div>'; }
     var monthLabel=new Date(state.monthMs).toLocaleDateString("es-CL",{month:"long",year:"numeric"});
+    var vTag=' · v'+APP_BUILD;
     var subtitle=(state.view==="inventario"?("Conteos y stock · datos al "+todayStr):(state.view==="registro"?"Solo inventario inicial y final de cada turno":(state.view==="compras"?("Órdenes de compra, retiros y stock de insumos · datos al "+todayStr):(state.view==="salidas"?("Despachos · se cruzan con producción · datos al "+todayStr):(state.view==="config"?"Parámetros, personas y stock":(state.view==="reportes"?("Análisis por rango de fechas · datos al "+todayStr):((monthMode()?monthLabel:weekLabel)+" · datos al "+todayStr)))))));
     var rightAction="";
     if(state.view==="reportes") rightAction='<button class="ti-ghost ti-press" data-act="print" style="display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 15px;border-radius:12px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13.5px \'Space Grotesk\'">'+IC.printer(16)+'Imprimir</button>';
     else if(state.view==="calendario"||state.view==="grupos") rightAction='<button class="ti-primary ti-press" data-act="new" style="display:flex;align-items:center;gap:8px;height:40px;padding:0 16px;border-radius:12px;background:var(--ti-accent,#0E8FD6);color:var(--ti-accent-ink,#fff);font:600 14px \'Space Grotesk\';box-shadow:0 8px 20px var(--ti-accentshadow,rgba(14,143,214,.32))">'+IC.plus(17)+'Nuevo turno</button>';
-    var topbar='<div class="ti-topbar" data-noprint><div style="min-width:0"><div class="ti-crumb">'+meta[0]+'</div><div class="ti-title">'+meta[1]+'</div><div class="ti-sub">'+subtitle+'</div></div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end"><div class="ti-themepicker" style="display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)">'+themeButtonsHtml+'</div>'+calToggle+(showWeek?weekNav:"")+rightAction+'</div></div>';
+    var topbar='<div class="ti-topbar" data-noprint><div style="min-width:0"><div class="ti-crumb">'+meta[0]+'</div><div class="ti-title">'+meta[1]+'</div><div class="ti-sub">'+subtitle+'<span style="opacity:.5"> · v'+APP_BUILD+'</span></div></div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end"><div class="ti-themepicker" style="display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)">'+themeButtonsHtml+'</div>'+calToggle+(showWeek?weekNav:"")+rightAction+'</div></div>';
 
     /* ---------- chooser popover ---------- */
     var chooserHtml="";
