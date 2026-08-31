@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-31-detalle-dia-registro -->
+<!-- BUILD-MARK: 2026-08-31-mallas-registradas-mandan -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-08-31-detalle-dia-registro";
+  var APP_BUILD="2026-08-31-mallas-registradas-mandan";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -701,11 +701,13 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var rd=s.registroDraft;
         var cerrado=!!s.closed;
         var estado=cerrado?{t:"En el calendario",c:"var(--ti-ok,#12A150)"}:(rd?(rd.noHubo?{t:"No hubo turno",c:"var(--ti-muted,#647787)"}:{t:"Falta aprobar",c:"var(--ti-warn,#B26B00)"}):{t:"Sin registrar",c:"var(--ti-muted,#647787)"});
-        var nombres = cerrado ? rosterNames((s.groupA||[]).concat(s.groupB||[],s.groupPT||[],s.people||[])) : ((rd&&rd.names)||[]);
-        var att = cerrado ? (s.attendance||{}) : ((rd&&rd.attendance)||{});
-        var inv = cerrado ? (s.invFinal||[]) : ((rd&&rd.invFinal)||[]);
-        var sacos = cerrado ? ((s.invFinal20&&s.invFinal20.sacos)||null) : ((rd&&rd.sacosFin)||null);
-        var maq = cerrado ? (s.maquina||"si") : ((rd&&rd.maquina)||"si");
+        // Se muestra lo registrado en el iPad (en mallas). Solo si nunca se
+        // registró ahí, se cae de vuelta a lo que tenga la tarjeta del calendario.
+        var nombres = rd ? (rd.names||[]) : rosterNames((s.groupA||[]).concat(s.groupB||[],s.groupPT||[],s.people||[]));
+        var att = rd ? (rd.attendance||{}) : (s.attendance||{});
+        var inv = rd ? (rd.invFinal||[]) : (s.invFinal||[]);
+        var sacos = rd ? (rd.sacosFin||null) : ((s.invFinal20&&s.invFinal20.sacos)||null);
+        var maq = rd ? (rd.maquina||"si") : (s.maquina||"si");
 
         var chipsGente=nombres.length?nombres.map(function(n){
           var pres=(att[n]||"presente")!=="ausente";
@@ -713,14 +715,17 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         }).join(""):'<span style="font:500 12.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">Sin personas anotadas</span>';
 
         var filasInv=(inv||[]).filter(function(r){ return r&&(r.mesh||r.kg); }).map(function(r){
-          var mesh=Number(r.mesh||0), kg=Number(r.kg|| (mesh*kgMalla(r.product)) );
+          var f=kgMalla(r.product)||1;
+          var kg=Number(r.kg||0), mesh=Number(r.mesh||0);
+          if(!mesh&&kg) mesh=Math.round(kg/f*10)/10;   // cerrados guardan solo kg
+          if(!kg&&mesh) kg=mesh*f;
           return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--ti-line2,#E8EDF2)"><span style="width:9px;height:9px;border-radius:3px;flex:none;background:'+prodColor(r.product)+'"></span><span style="flex:1;min-width:0;font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(r.product)+'</span><span style="font:700 14px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(mesh)+'</span><span style="font:600 11px \'Space Grotesk\';color:var(--ti-muted,#647787);width:44px;text-align:right">mallas</span><span style="font:600 12px \'IBM Plex Mono\';color:var(--ti-muted,#647787);width:78px;text-align:right">'+fmt(kg)+' kg</span></div>';
         }).join("");
         if(sacos!=null&&sacos!==""){
           filasInv+='<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--ti-line2,#E8EDF2)"><span style="width:9px;height:9px;border-radius:3px;flex:none;background:var(--ti-muted,#647787)"></span><span style="flex:1;font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">Saco 20 kg</span><span style="font:700 14px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(sacos)+'</span><span style="font:600 11px \'Space Grotesk\';color:var(--ti-muted,#647787);width:44px;text-align:right">sacos</span><span style="font:600 12px \'IBM Plex Mono\';color:var(--ti-muted,#647787);width:78px;text-align:right">'+fmt(Number(sacos)*KG_SACO)+' kg</span></div>';
         }
         if(!filasInv) filasInv='<div style="padding:10px 0;font:500 12.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">Sin inventario anotado</div>';
-        var totMallas=(inv||[]).reduce(function(a,r){ return a+Number((r&&r.mesh)||0); },0);
+        var totMallas=(inv||[]).reduce(function(a,r){ if(!r) return a; var mm=Number(r.mesh||0); if(!mm&&r.kg) mm=Number(r.kg)/(kgMalla(r.product)||1); return a+mm; },0);
         var totKg=(inv||[]).reduce(function(a,r){ return a+Number((r&&r.kg)||0); },0)+(sacos?Number(sacos)*KG_SACO:0);
 
         return '<section style="border:1px solid var(--ti-line,#DCE3EA);border-radius:14px;overflow:hidden;margin-bottom:14px">'+
@@ -737,8 +742,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
           '</div></section>';
       }).join("");
     }
-    return '<div data-regbackdrop="1" style="position:fixed;inset:0;z-index:120;background:rgba(12,20,26,.55);display:flex;align-items:flex-end;justify-content:center;padding:0" data-noprint>'+
-      '<div data-stop="1" style="width:100%;max-width:720px;max-height:92vh;overflow:auto;background:var(--ti-bg,#EEF2F5);border-radius:20px 20px 0 0;padding:0 0 18px">'+
+    return '<div data-regbackdrop="1" style="position:fixed;inset:0;z-index:120;background:rgba(12,20,26,.55);display:flex;align-items:center;justify-content:center;padding:18px" data-noprint>'+
+      '<div data-stop="1" style="width:100%;max-width:760px;max-height:88vh;overflow:auto;background:var(--ti-bg,#EEF2F5);border-radius:20px;padding:0 0 18px;box-shadow:0 24px 60px rgba(12,20,26,.35)">'+
         '<div style="position:sticky;top:0;background:var(--ti-bg,#EEF2F5);padding:16px 18px 12px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--ti-line,#DCE3EA);z-index:2">'+
           '<div style="min-width:0"><div style="font:700 18px \'Space Grotesk\';color:var(--ti-text,#14202B);text-transform:capitalize">'+esc(titulo)+'</div><div style="font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Lo registrado en el iPad</div></div>'+
           '<button data-act="registroEditarDia" data-iso="'+iso+'" style="margin-left:auto;height:40px;padding:0 15px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13px \'Space Grotesk\';cursor:pointer">Registrar</button>'+
@@ -1084,6 +1089,15 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       commit(obj); state.drawerOpen=false; render();
     } else {
       closeShift();
+    }
+    // El borrador NO se borra al aprobar: es el registro de lo que anotaron en
+    // mallas en el iPad, y es lo que se muestra en el resumen del mes.
+    var sFinal=findShift(id);
+    if(sFinal){
+      var guardar=JSON.parse(JSON.stringify(qd));
+      guardar.aprobado=true;
+      sFinal.registroDraft=guardar;
+      persist(); cloudSet('shifts',sFinal);
     }
     state.quickEditId=null; state.quickDraft=null; render();
   }
@@ -1959,7 +1973,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       var turnoCards=rTurnos.map(function(s){
         var qdSaved=s.registroDraft;
         var hayBorrador=!!qdSaved;
-        var estadoTxt=s.closed?"Cerrado":(hayBorrador?(qdSaved.noHubo?"No hubo — por aprobar":"Por aprobar"):"Sin inventario");
+        var estadoTxt=s.closed?"En el calendario":(hayBorrador?(qdSaved.noHubo?"No hubo — por aprobar":"Por aprobar"):"Sin registrar");
         var estadoColor=s.closed?"var(--ti-ok,#12A150)":(hayBorrador?"var(--ti-warn,#B26B00)":"var(--ti-muted,#647787)");
         var isOpen=state.quickEditId===s.id;
         var head=s.closed?
@@ -2068,29 +2082,34 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
             cuerpo=conDato.map(function(s){
               var rdd=s.registroDraft;
               var mallas=0, gente=0, maq="si", est="";
-              if(s.closed){ mallas=Math.round(Number(s.meshReal||0)); gente=presentInfo(s).total; maq=s.maquina||"si"; est="ok"; }
-              else if(rdd){
+              // Lo que registraron en el iPad manda; el calendario es solo respaldo
+              if(rdd){
                 mallas=(rdd.invFinal||[]).reduce(function(a,r){ return a+Number((r&&r.mesh)||0); },0);
                 gente=(rdd.names||[]).filter(function(n){ return (rdd.attendance||{})[n]!=="ausente"; }).length;
-                maq=rdd.maquina||"si"; est=rdd.noHubo?"cero":"pend";
+                maq=rdd.maquina||"si";
+                est=rdd.noHubo?"cero":(s.closed?"ok":"pend");
+              } else if(s.closed){
+                mallas=(s.invFinal||[]).reduce(function(a,r){ if(!r) return a; var mm=Number(r.mesh||0); if(!mm&&r.kg) mm=Number(r.kg)/(kgMalla(r.product)||1); return a+mm; },0);
+                mallas=Math.round(mallas); gente=presentInfo(s).total; maq=s.maquina||"si"; est="ok";
               }
               var col=est==="ok"?"var(--ti-ok,#12A150)":(est==="cero"?"var(--ti-muted,#647787)":"var(--ti-warn,#B26B00)");
               var tt=(s.title||"").replace("Turno ","");
-              return '<button data-act="registroDetalle" data-id="'+s.id+'" title="Ver detalle" style="width:100%;text-align:left;border:0;background:transparent;cursor:pointer;display:flex;align-items:center;gap:4px;padding:3px 2px;border-radius:6px;font:600 9.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+
-                '<span style="width:5px;height:5px;border-radius:50%;flex:none;background:'+col+'"></span>'+
-                '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(tt)+'</span>'+
-                '<span style="font-family:\'IBM Plex Mono\';color:var(--ti-muted,#647787)">'+fmt(mallas)+'m</span>'+
-                '<span style="font-family:\'IBM Plex Mono\';color:var(--ti-muted,#647787)">'+gente+'p</span>'+
-                (maq==="no"?'<span title="Máquina detenida" style="color:var(--ti-danger,#e5484d);font-weight:700">✕</span>':'')+
-              '</button>';
+              return '<div style="min-width:0;overflow:hidden;padding:2px 0">'+
+                '<div style="display:flex;align-items:center;gap:4px;min-width:0">'+
+                  '<span style="width:5px;height:5px;border-radius:50%;flex:none;background:'+col+'"></span>'+
+                  '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:700 9.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(tt)+'</span>'+
+                  (maq==="no"?'<span title="Máquina detenida" style="flex:none;color:var(--ti-danger,#e5484d);font:700 10px \'Space Grotesk\'">✕</span>':'')+
+                '</div>'+
+                '<div style="padding-left:9px;font:600 9px \'IBM Plex Mono\';color:var(--ti-muted,#647787);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+fmt(mallas)+'m · '+gente+'p</div>'+
+              '</div>';
             }).join("");
           } else if(delMes&&!futuro){
             cuerpo='<div style="margin-top:6px;font:500 10px \'Space Grotesk\';color:var(--ti-muted,#647787);opacity:.6">sin registrar</div>';
           } else if(delMes){
             cuerpo='<div style="margin-top:6px;font:500 10px \'Space Grotesk\';color:var(--ti-muted,#647787);opacity:.35">—</div>';
           }
-          celdas+='<button data-act="registroIrDia" data-iso="'+iso+'" style="text-align:left;min-height:78px;padding:6px 7px;border:0;border-top:1px solid var(--ti-line2,#E8EDF2);border-left:1px solid var(--ti-line2,#E8EDF2);cursor:pointer;background:'+(delMes?(esHoy?"var(--ti-today,rgba(14,143,214,.06))":"var(--ti-surface,#fff)"):"var(--ti-surface2,#F3F6F9)")+';opacity:'+(delMes?1:.45)+'">'+
-            '<div style="font:700 12px \'Space Grotesk\';color:'+(esHoy?"var(--ti-accent,#0E8FD6)":"var(--ti-text,#14202B)")+'">'+cur.getDate()+'</div>'+cuerpo+'</button>';
+          celdas+='<div role="button" tabindex="0" data-act="registroIrDia" data-iso="'+iso+'" style="text-align:left;min-width:0;overflow:hidden;min-height:84px;padding:6px 7px;border-top:1px solid var(--ti-line2,#E8EDF2);border-left:1px solid var(--ti-line2,#E8EDF2);cursor:pointer;background:'+(delMes?(esHoy?"var(--ti-today,rgba(14,143,214,.06))":"var(--ti-surface,#fff)"):"var(--ti-surface2,#F3F6F9)")+';opacity:'+(delMes?1:.45)+'">'+
+            '<div style="font:700 12px \'Space Grotesk\';color:'+(esHoy?"var(--ti-accent,#0E8FD6)":"var(--ti-text,#14202B)")+'">'+cur.getDate()+'</div>'+cuerpo+'</div>';
           cur.setDate(cur.getDate()+1);
         }
         var cab=DAYS_SHORT.map(function(d){ return '<div style="padding:8px 7px;font:700 9.5px \'Space Grotesk\';letter-spacing:.08em;color:var(--ti-muted,#647787);border-left:1px solid var(--ti-line2,#E8EDF2)">'+d+'</div>'; }).join("");
