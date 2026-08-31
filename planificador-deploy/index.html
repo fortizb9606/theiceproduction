@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-31-fix-ipad-fechas-y-layout -->
+<!-- BUILD-MARK: 2026-08-31-quien-va-en-cada-turno -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -505,6 +505,20 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     if(!c.payExtra) c.payExtra={};
     if(!c.extraHoursByPersonDay) c.extraHoursByPersonDay={};
     if(!c.rosterType) c.rosterType={};
+    if(!c.defaultByShift||typeof c.defaultByShift!=="object") c.defaultByShift=null;
+    if(!c.defaultByShift){
+      // primera vez: se arma desde el tipo de cada persona
+      var dbs={am:[],ext:[],pm:[]};
+      (c.roster||[]).forEach(function(n){
+        n=(n||"").trim(); if(!n) return;
+        var t=(c.rosterType&&c.rosterType[n])||"full_am"; if(t==="full") t="full_am";
+        if(t==="full_am"||t==="part") dbs.am.push(n);
+        else if(t==="full_ext") dbs.ext.push(n);
+        else if(t==="full_pm") dbs.pm.push(n);
+      });
+      c.defaultByShift=dbs;
+    }
+    ["am","ext","pm"].forEach(function(k){ if(!Array.isArray(c.defaultByShift[k])) c.defaultByShift[k]=[]; });
     if(!c.defaultGroupA) c.defaultGroupA=["Nicole Iglesia","Santiago Valderrama","Kevin Giraldo",""];
     if(!c.defaultGroupB) c.defaultGroupB=["José Salazar","Wilfredo",""];
     if(!c.roster || !c.roster.length){ var seen={},r=[]; c.defaultGroupA.concat(c.defaultGroupB).forEach(function(n){ n=(n||"").trim(); if(n&&!seen[n]){seen[n]=1;r.push(n);} }); c.roster=r; }
@@ -558,8 +572,12 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function syncRostersFromConfig(){
     var hoy=isoDate(new Date());
     var roster=(config.roster||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
-    var porTipo=function(k){ return roster.filter(function(n){ return rosterTipo(n)===k; }); };
-    var fullAM=porTipo("full_am"), fullExt=porTipo("full_ext"), fullPM=porTipo("full_pm"), parts=porTipo("part");
+    var dbs=config.defaultByShift||{am:[],ext:[],pm:[]};
+    var vivos=function(list){ return (list||[]).filter(function(n){ return roster.indexOf(n)>=0; }); };
+    var amTodos=vivos(dbs.am);
+    var fullAM=amTodos.filter(function(n){ return !esPartTime(n); });
+    var parts=amTodos.filter(function(n){ return esPartTime(n); });
+    var fullExt=vivos(dbs.ext), fullPM=vivos(dbs.pm);
     var cambiados=[];
     state.shifts.forEach(function(s){
       if(s.closed) return;
@@ -2157,7 +2175,30 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         '<section style="'+CARD+';overflow:hidden">'+sectionHead("Productos","Los inactivos dejan de aparecer en los selectores de Metas, Inventario y Salidas — deja solo tus productos definitivos")+'<div style="padding:4px 18px 18px">'+prodToggleRows+'</div></section>'+
         '<section style="'+CARD+';overflow:hidden">'+sectionHead("Costos","Se usa para calcular el costo de mano de obra de todos los turnos")+'<div style="padding:6px 18px 18px;max-width:280px"><label style="font:600 12px \'Space Grotesk\';color:var(--ti-label,#4f5b70);display:block;margin-bottom:6px">Costo por persona ($ / turno)</label><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(config.costPerPerson)+'" data-cfg-num="costPerPerson"></div></section>'+
         '<section style="'+CARD+';overflow:hidden">'+sectionHead("Personas activas","Marca el tipo de cada una · los part-time son los que salen en la Planilla de pagos semanal (los full-time se pagan aparte, a fin de mes)")+'<div style="padding:6px 18px 18px"><div style="display:flex;flex-direction:column;gap:8px">'+rosterRowsWithType(config.roster)+'</div>'+cfgAddBtn("roster","Agregar persona")+'</div></section>'+
-        '<section style="'+CARD+';overflow:hidden">'+sectionHead("Equipo por defecto","Se aplica a los turnos nuevos de aquí en adelante")+
+        (function(){
+          var TURNOS=[{k:"am",n:"Turno AM",h:"Lun-Vie 07:00-16:00 · Sáb 08:30-12:30",c:th.types.b.bar},
+                      {k:"ext",n:"Extensión",h:"Todos los días 16:00-21:30",c:th.types.custom.bar},
+                      {k:"pm",n:"Turno PM / Noche",h:"Lun-Vie 22:00-06:30",c:th.types.night.bar}];
+          var dbs=config.defaultByShift||{am:[],ext:[],pm:[]};
+          var gente=(config.roster||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
+          if(!gente.length) return '<section style="'+CARD+';overflow:hidden">'+sectionHead("Quién va en cada turno","")+'<div style="padding:22px;text-align:center;color:var(--ti-muted,#647787);font:500 13px \'Space Grotesk\'">Agrega personas arriba para poder asignarlas.</div></section>';
+          var cols=TURNOS.map(function(t){
+            var asignados=(dbs[t.k]||[]).filter(function(n){ return gente.indexOf(n)>=0; });
+            var filas=gente.map(function(n){
+              var on=asignados.indexOf(n)>=0;
+              var part=esPartTime(n);
+              return '<button data-act="dbsToggle" data-turno="'+t.k+'" data-name="'+esc(n)+'" style="width:100%;text-align:left;display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:10px;cursor:pointer;border:1px solid '+(on?t.c:"var(--ti-line,#DCE3EA)")+';background:'+(on?t.c+"14":"var(--ti-surface,#fff)")+';margin-bottom:6px">'+
+                '<span style="width:20px;height:20px;border-radius:6px;flex:none;border:2px solid '+(on?t.c:"var(--ti-line,#DCE3EA)")+';background:'+(on?t.c:"transparent")+';display:grid;place-items:center;color:#fff">'+(on?IC.check(12):"")+'</span>'+
+                '<span style="flex:1;min-width:0;font:600 12.5px \'Space Grotesk\';color:'+(on?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(n)+'</span>'+
+                (part?'<span style="font:700 8.5px \'Space Grotesk\';letter-spacing:.04em;color:var(--ti-ok,#12A150);background:var(--ti-ok-soft,#E4F5EC);padding:2px 5px;border-radius:5px;flex:none">PART</span>':'')+
+              '</button>';
+            }).join("");
+            return '<div style="min-width:0"><div style="display:flex;align-items:center;gap:7px;margin-bottom:8px"><span style="width:9px;height:9px;border-radius:3px;background:'+t.c+';flex:none"></span><div style="min-width:0"><div style="font:700 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+t.n+'</div><div style="font:500 10px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+t.h+'</div></div><span style="margin-left:auto;font:700 11px \'IBM Plex Mono\';color:var(--ti-text,#14202B);flex:none">'+asignados.length+'</span></div>'+filas+'</div>';
+          }).join("");
+          return '<section style="'+CARD+';overflow:hidden">'+sectionHead("Quién va en cada turno","Marca quién entra por defecto en cada horario · se aplica al calendario y a Registro de turno, en los turnos abiertos de hoy en adelante")+
+            '<div style="padding:16px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px">'+cols+'</div></section>';
+        })()+
+        '<section style="'+CARD+';overflow:hidden;display:none">'+sectionHead("Equipo por defecto","Se aplica a los turnos nuevos de aquí en adelante")+
           '<div style="padding:10px 18px 6px;display:grid;grid-template-columns:1fr 1fr;gap:20px">'+
             '<div><div style="font:700 11.5px \'Space Grotesk\';color:'+th.types.b.bar+';display:flex;align-items:center;gap:7px;margin-bottom:10px"><span style="width:9px;height:9px;border-radius:3px;background:'+th.types.b.bar+'"></span>Full time · '+gcount(config.defaultGroupA)+'</div><div style="display:flex;flex-direction:column;gap:8px">'+cfgNameRows(config.defaultGroupA,"defA")+'</div>'+cfgAddBtn("defA","Agregar full time")+'</div>'+
           '</div><div style="padding:14px 18px 18px"><button class="ti-ghost ti-press" data-act="cfgApplyGroups" style="height:40px;padding:0 15px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 12.5px \'Space Grotesk\'">Aplicar grupos fijos a los turnos AM existentes</button></div></section>'+
@@ -2340,6 +2381,15 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(act==="duplicate") duplicateShiftToNextDay();
     else if(act==="quickInv") openQuickInv(btn.getAttribute("data-id"));
     else if(act==="invModo"){ state.invModo=btn.getAttribute("data-modo"); render(); }
+    else if(act==="dbsToggle"){
+      var tk=btn.getAttribute("data-turno"), nm=btn.getAttribute("data-name");
+      if(!config.defaultByShift) config.defaultByShift={am:[],ext:[],pm:[]};
+      var lst=config.defaultByShift[tk]||[];
+      var i=lst.indexOf(nm);
+      if(i>=0) lst.splice(i,1); else lst.push(nm);
+      config.defaultByShift[tk]=lst;
+      persistCfg(); cloudSet('config',config); syncRostersFromConfig(); render();
+    }
     else if(act==="camTab"){ state.camActiva=btn.getAttribute("data-cam"); render(); }
     else if(act==="secClear"){
       var wc=btn.getAttribute("data-which"), cid=btn.getAttribute("data-cam"), cam=camara(cid);
@@ -2393,7 +2443,13 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(act==="resetData") resetData();
     else if(act==="cfgSave"){ persistCfg(); cloudSet('config',config); var n=syncRostersFromConfig(); render(); alert(n?("Configuración guardada. Se actualizó la dotación de "+n+" turno(s) de hoy en adelante."):"Configuración guardada."); }
     else if(act==="cfgAdd") cfgAdd(btn.getAttribute("data-list"));
-    else if(act==="cfgRemove"){ cfgRemove(btn.getAttribute("data-list"),+btn.getAttribute("data-idx")); syncRostersFromConfig(); render(); }
+    else if(act==="cfgRemove"){
+      var lstName=btn.getAttribute("data-list"), idxRem=+btn.getAttribute("data-idx");
+      var quitado=(lstName==="roster")?String((config.roster||[])[idxRem]||"").trim():null;
+      cfgRemove(lstName,idxRem);
+      if(quitado&&config.defaultByShift){ ["am","ext","pm"].forEach(function(k){ config.defaultByShift[k]=(config.defaultByShift[k]||[]).filter(function(n){ return n!==quitado; }); }); persistCfg(); cloudSet('config',config); }
+      syncRostersFromConfig(); render();
+    }
     else if(act==="cfgApplyGroups") cfgApplyGroups();
     else if(act==="cfgToggleProduct"){ var pName=btn.getAttribute("data-product"); if(!config.inactiveProducts) config.inactiveProducts=[]; var ix=config.inactiveProducts.indexOf(pName); if(ix>=0) config.inactiveProducts.splice(ix,1); else config.inactiveProducts.push(pName); render(); }
 
