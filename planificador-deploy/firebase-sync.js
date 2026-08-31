@@ -35,9 +35,15 @@ const ALLOWED_EMAILS = [
 const SDK = "https://www.gstatic.com/firebasejs/10.12.2/";
 
 if (FIREBASE_CONFIG.apiKey) {
-  boot().catch(err => { console.error("[TISync] error:", err); });
+  boot().catch(err => {
+    console.error("[TISync] error:", err);
+    // No fallar en silencio: si no hay nube, los datos que se ven son locales
+    // y NO se están guardando. Hay que avisarlo en pantalla.
+    try { window.TICloudError = (err && err.message) ? err.message : String(err); } catch (e) {}
+  });
 } else {
   console.info("[TISync] Sin config de Firebase → modo local (localStorage).");
+  try { window.TICloudError = "Sin configuración de Firebase"; } catch (e) {}
 }
 
 async function boot() {
