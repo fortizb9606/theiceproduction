@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-31-aviso-sin-conexion -->
+<!-- BUILD-MARK: 2026-08-31-solo-final-y-meta-mes -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-08-31-aviso-sin-conexion";
+  var APP_BUILD="2026-08-31-solo-final-y-meta-mes";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -506,6 +506,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     if(!c.payExtra) c.payExtra={};
     if(!c.extraHoursByPersonDay) c.extraHoursByPersonDay={};
     if(!c.rosterType) c.rosterType={};
+    if(c.metaMensualTon==null||isNaN(Number(c.metaMensualTon))) c.metaMensualTon=140;
     if(!c.defaultByShift||typeof c.defaultByShift!=="object") c.defaultByShift=null;
     if(!c.defaultByShift){
       // primera vez: se arma desde el tipo de cada persona
@@ -1926,24 +1927,23 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
             })()+'</div>';
           var rows=(s.products||[]).map(function(p){
             var name=p.product;
-            var iniEntry=(qd.invInicial||[]).filter(function(r){return r&&r.product===name;})[0]||{};
             var finEntry=(qd.invFinal||[]).filter(function(r){return r&&r.product===name;})[0]||{};
-            return '<div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;align-items:center;padding:11px 0;border-top:1px solid var(--ti-line2,#E8EDF2)">'+
-              '<div style="display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:3px;flex:none;background:'+prodColor(name)+'"></span><span style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(name)+'</span></div>'+
-              '<input type="number" min="0" step="1" inputmode="numeric" placeholder="Inicial (mallas)" value="'+esc(iniEntry.mesh||"")+'" data-qinv-which="invInicial" data-qinv-product="'+esc(name)+'" style="height:46px;font-size:15px;text-align:center">'+
-              '<input type="number" min="0" step="1" inputmode="numeric" placeholder="Final (mallas)" value="'+esc(finEntry.mesh||"")+'" data-qinv-which="invFinal" data-qinv-product="'+esc(name)+'" style="height:46px;font-size:15px;text-align:center">'+
+            var kgFin=finEntry.mesh!==""&&finEntry.mesh!=null?Math.round(Number(finEntry.mesh||0)*kgMalla(name)):null;
+            return '<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--ti-line2,#E8EDF2)">'+
+              '<div style="flex:1;min-width:0;display:flex;align-items:center;gap:9px"><span style="width:11px;height:11px;border-radius:3px;flex:none;background:'+prodColor(name)+'"></span><div style="min-width:0"><div style="font:600 14.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(name)+'</div>'+(kgFin!=null?('<div style="font:600 11.5px \'IBM Plex Mono\';color:var(--ti-muted,#647787)">'+fmt(kgFin)+' kg</div>'):'')+'</div></div>'+
+              '<input type="number" min="0" step="1" inputmode="numeric" pattern="[0-9]*" placeholder="—" value="'+esc(finEntry.mesh||"")+'" data-qinv-which="invFinal" data-qinv-product="'+esc(name)+'" style="width:118px;height:56px;font-size:22px;font-weight:700;text-align:center;flex:none">'+
               '</div>';
           }).join("");
-          var colHead='<div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;padding:0 0 6px"><div></div><div style="font:700 10px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);text-align:center">Inv. inicial</div><div style="font:700 10px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);text-align:center">Inv. final</div></div>';
+          var colHead='<div style="display:flex;align-items:center;gap:12px;padding:0 0 4px"><div style="flex:1;font:700 10.5px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787)">Producto</div><div style="width:118px;text-align:center;font:700 10.5px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);flex:none">Mallas al cierre</div></div>';
           var modoSec=state.invModo==="secciones";
           var toggle='<div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--ti-line2,#E8EDF2)">'+
-            '<span style="font:700 10px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787)">Inventario</span>'+
+            '<div style="min-width:0"><div style="font:700 10.5px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787)">Inventario al cierre del turno</div><div style="font:500 11px \'Space Grotesk\';color:var(--ti-muted,#647787);margin-top:2px">Cuenta lo que queda al terminar. El inicial lo toma Felipe.</div></div>'+
             '<div style="margin-left:auto;display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)">'+
             '<button data-act="invModo" data-modo="lista" style="height:30px;padding:0 12px;border-radius:8px;border:0;cursor:pointer;font:600 11.5px \'Space Grotesk\';background:'+(!modoSec?"var(--ti-surface,#fff)":"transparent")+';color:'+(!modoSec?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+'">Por producto</button>'+
             '<button data-act="invModo" data-modo="secciones" style="height:30px;padding:0 12px;border-radius:8px;border:0;cursor:pointer;font:600 11.5px \'Space Grotesk\';background:'+(modoSec?"var(--ti-surface,#fff)":"transparent")+';color:'+(modoSec?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+'">Por secciones <span style="font-size:9px;opacity:.7">BETA</span></button>'+
             '</div></div>';
           var invBody=modoSec
-            ? ('<div style="margin-top:12px;display:flex;flex-direction:column;gap:12px">'+reeferHtml("invInicial")+reeferHtml("invFinal")+'</div>')
+            ? ('<div style="margin-top:12px">'+reeferHtml("invFinal")+'</div>')
             : ('<div style="padding-top:12px">'+colHead+rows+'</div>');
           body='<div style="padding:0 18px 18px;border-top:1px solid var(--ti-line,#DCE3EA)">'+
             namesSection+
@@ -2162,7 +2162,44 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
               +'<div style="flex:1;min-width:220px;border-left:1px solid var(--ti-line,#DCE3EA);padding-left:22px">'+invFinRows+'</div>'
             +'</div></section>';
         })();
-        reportesBody=filterCard+lectura+'<section class="ti-metrics">'+kpisHtml+'</section>'+dailyChart+simulacionAlta+composicion+ranking+salidasReport+bagReport+mallaReport+guantesReport+crossTable+cumpl_tbl+cierreSemanaHtml;
+        var metaBar=(function(){
+          var hoy=parseIso(todayIso);
+          var y=hoy.getFullYear(), mo=hoy.getMonth();
+          var ini=isoDate(new Date(y,mo,1)), fin=isoDate(new Date(y,mo+1,0));
+          var delMes=state.shifts.filter(function(s){ return s.closed&&s.date&&s.date>=ini&&s.date<=fin; });
+          var kg=delMes.reduce(function(a,s){ return a+Number(s.kgReal||0); },0);
+          var metaTon=Number(config.metaMensualTon||0), metaKg=metaTon*1000;
+          var pct=metaKg>0?(kg/metaKg*100):0;
+          var diasMes=new Date(y,mo+1,0).getDate(), diaHoy=hoy.getDate();
+          var esperadoPct=diasMes>0?(diaHoy/diasMes*100):0;
+          var faltan=Math.max(0,metaKg-kg);
+          var diasRest=Math.max(0,diasMes-diaHoy);
+          var ritmoNec=diasRest>0?(faltan/diasRest):0;
+          var color=pct>=esperadoPct?"var(--ti-ok,#12A150)":(pct>=esperadoPct*0.85?"var(--ti-warn,#B26B00)":"var(--ti-danger,#e5484d)");
+          var mesNom=hoy.toLocaleDateString("es-CL",{month:"long"});
+          return '<section style="'+CARD+';overflow:hidden">'+
+            '<div style="padding:16px 18px 6px;display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">'+
+              '<div style="min-width:0"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">Meta de '+esc(mesNom)+'</div>'+
+              '<div style="margin-top:2px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Producción real acumulada del mes · turnos cerrados</div></div>'+
+              '<div style="margin-left:auto;display:flex;align-items:center;gap:7px"><label style="font:600 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">Meta</label>'+
+              '<input type="number" min="0" step="1" inputmode="numeric" value="'+esc(metaTon)+'" data-meta-mensual="1" style="width:84px;height:38px;text-align:right;font-weight:700"><span style="font:600 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">ton</span></div>'+
+            '</div>'+
+            '<div style="padding:8px 18px 4px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">'+
+              '<span style="font:700 34px \'IBM Plex Mono\';color:'+color+';letter-spacing:-.02em">'+fmt1(kg/1000)+'</span>'+
+              '<span style="font:600 14px \'Space Grotesk\';color:var(--ti-muted,#647787)">de '+fmt(metaTon)+' toneladas</span>'+
+              '<span style="margin-left:auto;font:700 18px \'IBM Plex Mono\';color:'+color+'">'+Math.round(pct)+'%</span>'+
+            '</div>'+
+            '<div style="padding:6px 18px 0"><div style="position:relative;height:26px;border-radius:13px;background:var(--ti-surface2,#F3F6F9);overflow:hidden">'+
+              '<div style="position:absolute;left:0;top:0;bottom:0;width:'+Math.min(100,pct)+'%;background:'+color+';border-radius:13px;transition:width .4s"></div>'+
+              (esperadoPct<100?('<div title="Dónde deberías ir hoy" style="position:absolute;top:-3px;bottom:-3px;left:'+Math.min(100,esperadoPct)+'%;width:2.5px;background:var(--ti-text,#14202B);opacity:.55"></div>'):'')+
+            '</div></div>'+
+            '<div style="padding:9px 18px 16px;display:flex;gap:16px;flex-wrap:wrap;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+
+              '<span>Al día '+diaHoy+' de '+diasMes+' deberías ir en <b style="color:var(--ti-text,#14202B)">'+Math.round(esperadoPct)+'%</b></span>'+
+              '<span>Faltan <b style="color:var(--ti-text,#14202B)">'+fmt1(faltan/1000)+' ton</b></span>'+
+              (diasRest>0?('<span>Ritmo necesario: <b style="color:var(--ti-text,#14202B)">'+fmt(Math.round(ritmoNec))+' kg/día</b> en los '+diasRest+' días que quedan</span>'):'<span>Último día del mes</span>')+
+            '</div></section>';
+        })();
+        reportesBody=metaBar+filterCard+lectura+'<section class="ti-metrics">'+kpisHtml+'</section>'+dailyChart+simulacionAlta+composicion+ranking+salidasReport+bagReport+mallaReport+guantesReport+crossTable+cumpl_tbl+cierreSemanaHtml;
       }
     }
 
@@ -2501,6 +2538,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   root.addEventListener("mousedown",function(e){ var handle=e.target.closest("[data-resize-id]"); if(handle){ onResizeDown(handle.getAttribute("data-resize-id"),e); return; } var card=e.target.closest("[data-card-id]"); if(card){ onCardDown(card.getAttribute("data-card-id"),e); } });
   root.addEventListener("input",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-person-idx")){ var pg=t.getAttribute("data-person-group")||""; var pk=pkey(pg); state.draft[pk][+t.getAttribute("data-person-idx")]=t.value; updateComputed(); } else if(t.hasAttribute("data-invini-idx")){ var vi=+t.getAttribute("data-invini-idx"); var vif=t.getAttribute("data-invini-f"); if(!state.draft.invInicial) state.draft.invInicial=[]; if(!state.draft.invInicial[vi]) state.draft.invInicial[vi]={mesh:"",kg:""}; state.draft.invInicial[vi][vif]=t.value; if(vif==="mesh") autoKgInvIni(vi); updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="mesh") autoKgProd(pi); updateComputed(); } else if(t.hasAttribute("data-invclose-idx")){ var ii=+t.getAttribute("data-invclose-idx"); var iif=t.getAttribute("data-invclose-f"); if(!state.draft.invCounts) state.draft.invCounts=[]; if(!state.draft.invCounts[ii]) state.draft.invCounts[ii]={mesh:"",kg:""}; state.draft.invCounts[ii][iif]=t.value; if(iif==="mesh") autoKgInvFinal(ii); updateComputed(); } else if(t.hasAttribute("data-saco20-tag")){ var s20tag=t.getAttribute("data-saco20-tag"); var s20f=t.getAttribute("data-saco20-f"); var s20key=s20tag==="ini"?"invInicial20":"invFinal20"; if(!state.draft[s20key]) state.draft[s20key]={sacos:"",kg:""}; state.draft[s20key][s20f]=t.value; if(s20f==="sacos") autoKgSaco20(s20tag); updateComputed(); } else if(t.hasAttribute("data-cfg-prod")){ config.bagStock[t.getAttribute("data-cfg-prod")]=t.value; } else if(t.hasAttribute("data-cfg-num")){ config[t.getAttribute("data-cfg-num")]=t.value; } else if(t.hasAttribute("data-cfg-list")){ var lk=t.getAttribute("data-cfg-list"); var cf=lk==="roster"?"roster":(lk==="defA"?"defaultGroupA":"defaultGroupB"); if(!config[cf])config[cf]=[]; config[cf][+t.getAttribute("data-cfg-idx")]=t.value; } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="mesh"){ var fac=kgMalla(state.invDraft.product); if(fac>0){ state.invDraft.qty=(t.value===""?"":String(Number(t.value||0)*fac)); var qe=root.querySelector('[data-inv-f="qty"]'); if(qe){ qe.value=state.invDraft.qty; qe.readOnly=true; } } } } else if(t.hasAttribute("data-salrow-idx")){ var sri=+t.getAttribute("data-salrow-idx"); var srf=t.getAttribute("data-salrow-f"); if(!state.draft.salidasCount) state.draft.salidasCount=[]; if(!state.draft.salidasCount[sri]) state.draft.salidasCount[sri]={mesh:"",kg:""}; state.draft.salidasCount[sri][srf]=t.value; if(srf==="mesh") autoKgSalRow(sri); updateComputed(); } else if(t.hasAttribute("data-metaquick-f")){ if(!state.metaQuick) state.metaQuick={product:activeProducts()[0]||"Original 3 kg",mesh:"",kg:""}; var mqf=t.getAttribute("data-metaquick-f"); state.metaQuick[mqf]=t.value; if(mqf==="mesh"){ var mqfac=kgMalla(state.metaQuick.product); if(mqfac>0){ state.metaQuick.kg=(t.value===""?"":String(Number(t.value||0)*mqfac)); var mqke=root.querySelector('[data-metaquick-f="kg"]'); if(mqke){ mqke.value=state.metaQuick.kg; mqke.readOnly=true; } } } else if(mqf==="product"){ render(); } } else if(t.hasAttribute("data-metaday-iso")){ var mdIso=t.getAttribute("data-metaday-iso"), mdProd=t.getAttribute("data-metaday-product"), mdF=t.getAttribute("data-metaday-f"); if(mdF==="mesh"){ var mdFac=kgMalla(mdProd); if(mdFac>0){ var kgv=(t.value===""?"":String(Number(t.value||0)*mdFac)); var kgEl=root.querySelector('[data-metadaykgof="'+mdIso+'|'+mdProd+'"]'); if(kgEl){ kgEl.value=kgv; kgEl.readOnly=true; } } } } else if(t.hasAttribute("data-sal-f")){ var sf=t.getAttribute("data-sal-f"); state.salDraft[sf]=t.value; if(sf==="mesh"){ var sfac=kgMalla(state.salDraft.product); if(sfac>0){ state.salDraft.kg=(t.value===""?"":String(Number(t.value||0)*sfac)); var ske=root.querySelector('[data-sal-f="kg"]'); if(ske){ ske.value=state.salDraft.kg; ske.readOnly=true; } } } } else if(t.hasAttribute("data-payr-name")){ autoPayRow(t.getAttribute("data-payr-name")); } else if(t.hasAttribute("data-payx-name")){ autoPayRow(t.getAttribute("data-payx-name")); } else if(t.hasAttribute("data-compra-f")){ if(!state.compraDraft) state.compraDraft={}; state.compraDraft[t.getAttribute("data-compra-f")]=t.value; } else if(t.hasAttribute("data-quickadd-f")){ if(!state.quickAddDraft) state.quickAddDraft={}; state.quickAddDraft[t.getAttribute("data-quickadd-f")]=t.value; } else if(t.hasAttribute("data-quickname-f")){ state.quickNameDraft=t.value; }
     else if(t.hasAttribute("data-cfg-rostertype")){ var rn=t.getAttribute("data-cfg-rostertype"); if(!config.rosterType) config.rosterType={}; config.rosterType[rn]=t.value; persistCfg(); cloudSet('config',config); syncRostersFromConfig(); render(); }
+    else if(t.hasAttribute("data-meta-mensual")){ config.metaMensualTon=Number(t.value||0); persistCfg(); cloudSet('config',config); }
     else if(t.hasAttribute("data-sacos-which")){ setSacos(t.getAttribute("data-sacos-which"),t.value); }
     else if(t.hasAttribute("data-c3-product")){ state.quickDraft.c3Product=t.value; recalcDesdeSecciones("invInicial"); recalcDesdeSecciones("invFinal"); render(); } else if(t.hasAttribute("data-qinv-product")){ var qw=t.getAttribute("data-qinv-which"), qp=t.getAttribute("data-qinv-product"); var qfac=kgMalla(qp); var qkg=(t.value===""?"":String(Number(t.value||0)*qfac)); var qlist=state.quickDraft[qw]||[]; var qfound=false; qlist=qlist.map(function(r){ if(r&&r.product===qp){ qfound=true; return {product:qp,mesh:t.value,kg:qkg}; } return r; }); if(!qfound) qlist.push({product:qp,mesh:t.value,kg:qkg}); state.quickDraft[qw]=qlist; } });
   root.addEventListener("blur",function(e){ var t=e.target; if(!t||!t.hasAttribute) return; if(t.hasAttribute("data-salrow-idx")) salRowCommit(+t.getAttribute("data-salrow-idx")); else if(t.hasAttribute("data-payr-name")) payRateCommit(t.getAttribute("data-payr-name")); else if(t.hasAttribute("data-payx-name")) payExtraCommit(t.getAttribute("data-payx-name")); else if(t.hasAttribute("data-extrahours-key")) extraHoursPersonCommit(t.getAttribute("data-extrahours-key")); else if(t.hasAttribute("data-metaday-iso")){ var miso=t.getAttribute("data-metaday-iso"), mprod=t.getAttribute("data-metaday-product"); var meshEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="mesh"]'); var kgEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="kg"]'); var meshV=meshEl?meshEl.value:""; var kgV=kgEl?kgEl.value:""; var kgN=(kgV!==""&&!isNaN(Number(kgV)))?Number(kgV):0; var meshN=(meshV!==""&&!isNaN(Number(meshV)))?Number(meshV):null; metaCommit(miso,mprod,kgN,meshN); render(); } },true);
