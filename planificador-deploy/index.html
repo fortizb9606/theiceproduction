@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-31-lista-nombres -->
+<!-- BUILD-MARK: 2026-08-31-aviso-sin-conexion -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-08-31-lista-nombres";
+  var APP_BUILD="2026-08-31-aviso-sin-conexion";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -2250,6 +2250,15 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var rightAction="";
     if(state.view==="reportes") rightAction='<button class="ti-ghost ti-press" data-act="print" style="display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 15px;border-radius:12px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13.5px \'Space Grotesk\'">'+IC.printer(16)+'Imprimir</button>';
     else if(state.view==="calendario"||state.view==="grupos") rightAction='<button class="ti-primary ti-press" data-act="new" style="display:flex;align-items:center;gap:8px;height:40px;padding:0 16px;border-radius:12px;background:var(--ti-accent,#0E8FD6);color:var(--ti-accent-ink,#fff);font:600 14px \'Space Grotesk\';box-shadow:0 8px 20px var(--ti-accentshadow,rgba(14,143,214,.32))">'+IC.plus(17)+'Nuevo turno</button>';
+    var avisoNube="";
+    if(state.nubeCaida){
+      avisoNube='<div style="margin:0 0 16px;padding:14px 16px;border-radius:14px;background:var(--ti-danger-bg,#fff7f7);border:1.5px solid var(--ti-danger,#e5484d);display:flex;gap:12px;align-items:flex-start">'+
+        '<span style="color:var(--ti-danger,#e5484d);flex:none;display:flex;margin-top:1px">'+IC.alert()+'</span>'+
+        '<div><div style="font:700 13.5px \'Space Grotesk\';color:var(--ti-danger,#e5484d)">Sin conexión a la base de datos</div>'+
+        '<div style="margin-top:4px;font:500 12.5px/1.5 \'Space Grotesk\';color:var(--ti-text,#14202B)">Lo que ves en pantalla son datos locales de este dispositivo y <b>lo que anotes NO se está guardando</b> ni se comparte con los demás. Cierra y vuelve a abrir la página; si sigue igual, avísale a Felipe antes de registrar nada.'+
+        (state.nubeMsg?('<div style="margin-top:5px;font:500 11px \'IBM Plex Mono\';color:var(--ti-muted,#647787)">'+esc(state.nubeMsg)+'</div>'):'')+
+        '</div></div></div>';
+    }
     var topbar='<div class="ti-topbar" data-noprint><div style="min-width:0"><div class="ti-crumb">'+meta[0]+'</div><div class="ti-title">'+meta[1]+'</div><div class="ti-sub">'+subtitle+'<span style="opacity:.5"> · v'+APP_BUILD+'</span></div></div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end"><div class="ti-themepicker" style="display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)">'+themeButtonsHtml+'</div>'+calToggle+(showWeek?weekNav:"")+rightAction+'</div></div>';
 
     /* ---------- chooser popover ---------- */
@@ -2346,8 +2355,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       '</div>'+
       '<div style="border-top:1px solid var(--ti-line,#DCE3EA);padding:14px 20px;display:flex;gap:10px;align-items:center;background:var(--ti-surface,#fff);flex:none">'+deleteBtn+dupBtn+'<div style="display:flex;gap:10px;margin-left:auto"><button class="ti-close ti-press" data-act="close" style="height:42px;padding:0 16px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13.5px \'Space Grotesk\'">Cancelar</button><button class="ti-primary ti-press" data-act="save" style="height:42px;padding:0 20px;border-radius:11px;background:var(--ti-accent,#0E8FD6);color:var(--ti-accent-ink,#fff);font:600 13.5px \'Space Grotesk\';box-shadow:0 8px 20px var(--ti-accentshadow,rgba(14,143,214,.32))">Guardar turno</button></div></div></aside>';
 
+    var contentPre=avisoNube;
     var content=state.view==="reportes"?reportesBody:(state.view==="grupos"?gruposBody:(state.view==="inventario"?inventarioBody:(state.view==="compras"?comprasBody:(state.view==="registro"?registroBody:(state.view==="metas"?metasBody:(state.view==="config"?configBody:calendarBody))))));
-    var html='<div class="ti-app" style="'+themeVars+'">'+sidebar+'<div class="ti-main">'+topbar+'<div class="ti-content">'+bannerHtml+content+'</div></div>'+drawer+chooserHtml+daySummaryHtml()+bottomNav+fabMobile+'</div>';
+    var html='<div class="ti-app" style="'+themeVars+'">'+sidebar+'<div class="ti-main">'+topbar+'<div class="ti-content">'+contentPre+bannerHtml+content+'</div></div>'+drawer+chooserHtml+daySummaryHtml()+bottomNav+fabMobile+'</div>';
 
     var scrolls={};
     Array.prototype.forEach.call(root.querySelectorAll("[data-scroll-id]"),function(el){ scrolls[el.getAttribute("data-scroll-id")]={t:el.scrollTop,l:el.scrollLeft}; });
@@ -2497,6 +2507,22 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   root.addEventListener("change",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="product"){ autoKgProd(pi); render(); } else { if(pf==="mesh") autoKgProd(pi); updateComputed(); } } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="date"||iff==="shiftId"||iff==="product") render(); } else if(t.hasAttribute("data-sal-f")){ var slf=t.getAttribute("data-sal-f"); state.salDraft[slf]=t.value; if(slf==="date"||slf==="product") render(); } else if(t.hasAttribute("data-rep-f")){ var rff=t.getAttribute("data-rep-f"); if(rff==="from") state.repFrom=t.value; else if(rff==="to") state.repTo=t.value; else if(rff==="altaDemanda") state.repAltaDemandaTon=Number(t.value||30); render(); } });
   document.addEventListener("keydown",function(e){ if(e.key==="Escape"){ if(state.daySummaryIso){ state.daySummaryIso=null; render(); } else if(state.chooser) closeChooser(); else if(state.drawerOpen) closeDrawer(); } });
   setInterval(function(){ state.nowMs=Date.now(); render(); },60000);
+  /* Vigilancia de la conexión: si firebase-sync no logró conectar, el usuario
+     tiene que enterarse — antes fallaba en silencio y se anotaba sobre datos
+     locales que nunca se guardaban (pasó en el iPad, 31-ago-2026). */
+  (function vigilarNube(){
+    var intentos=0;
+    var chequeo=setInterval(function(){
+      intentos++;
+      var ok=!!(window.TICloud&&window.TICloud.ready);
+      var err=window.TICloudError||null;
+      if(ok){ if(state.nubeCaida){ state.nubeCaida=false; state.nubeMsg=null; render(); } clearInterval(chequeo); return; }
+      if(err||intentos>=7){
+        if(!state.nubeCaida){ state.nubeCaida=true; state.nubeMsg=err||"No se pudo conectar con Firebase"; render(); }
+        if(err) clearInterval(chequeo);
+      }
+    },1000);
+  })();
 
   /* ============ nube: recibir datos remotos (lo llama firebase-sync.js en tiempo real) ============ */
   window.tiApplyRemote=function(kind,items){
