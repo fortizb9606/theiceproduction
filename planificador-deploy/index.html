@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-28-sync-dotacion-config -->
+<!-- BUILD-MARK: 2026-08-31-fix-ipad-fechas-y-layout -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -31,7 +31,7 @@ label{-webkit-user-select:none;user-select:none}
 .ti-navwrap{flex:1;overflow:auto;margin-top:20px}
 .ti-navwrap::-webkit-scrollbar{width:8px}.ti-navwrap::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:8px}
 .ti-main{margin-left:260px;min-height:100vh;display:flex;flex-direction:column}
-@media(max-width:900px){.ti-sidebar{position:static;top:auto;left:auto;bottom:auto;width:auto;margin:14px 14px 0;border-radius:20px}.ti-main{margin-left:0}.ti-navwrap{margin-top:14px}}
+/* (se eliminó el modo "sidebar apilada arriba": bajo 1024px va la barra inferior, y sobre eso la sidebar fija cabe bien) */
 .ti-brand{display:flex;align-items:center;gap:12px;padding:2px 6px}
 .ti-brand-mark{width:40px;height:40px;flex:none;border-radius:12px;background:var(--ti-accent,#0E8FD6);display:grid;place-items:center;box-shadow:0 8px 20px var(--ti-accentshadow,rgba(14,143,214,.4))}
 .ti-brand-kicker{font:700 10px/1 'Space Grotesk';letter-spacing:.24em;color:var(--ti-nav-muted,#8299A0)}
@@ -106,7 +106,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 .ti-week-agenda{display:none}
 .ti-bottomnav{display:none}
 .ti-fab-mobile{display:none}
-@media(max-width:720px){
+@media(max-width:1024px){
   .ti-sidebar{display:none}
   .ti-main{margin-left:0;padding-bottom:82px}
   .ti-topbar{padding:14px 16px 10px;gap:10px}
@@ -244,7 +244,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function dayShiftsMetaMesh(iso){ return state.shifts.filter(function(s){ return s.date===iso; }).reduce(function(a,s){ return a+metaMesh(s); },0); }
   function dayMetaKg(iso){ return activeProducts().reduce(function(a,p){ return a+dayMetaKgForProduct(iso,p); },0); }
   function dayMetaMesh(iso){ return activeProducts().reduce(function(a,p){ return a+dayMetaMeshForProduct(iso,p); },0); }
-  function eachIsoInRange(rf,rt){ var out=[]; var d=new Date(rf+"T00:00:00"); var end=new Date(rt+"T00:00:00"); var guard=0; while(d.getTime()<=end.getTime()&&guard<400){ out.push(isoDate(d)); d.setDate(d.getDate()+1); guard++; } return out; }
+  function eachIsoInRange(rf,rt){ var out=[]; var d=parseIso(rf); var end=parseIso(rt); var guard=0; while(d.getTime()<=end.getTime()&&guard<400){ out.push(isoDate(d)); d.setDate(d.getDate()+1); guard++; } return out; }
   function sumMetaKgRange(rf,rt){ return eachIsoInRange(rf,rt).reduce(function(a,iso){ return a+dayMetaKg(iso); },0); }
   function sumMetaMeshRange(rf,rt){ return eachIsoInRange(rf,rt).reduce(function(a,iso){ return a+dayMetaMesh(iso); },0); }
   var CFG_KEY="theice-config-v1";
@@ -343,7 +343,20 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 
   /* ============ helpers ============ */
   function getMonday(date){ var d=new Date(date); var day=d.getDay(); var diff=d.getDate()-day+(day===0?-6:1); d.setHours(0,0,0,0); d.setDate(diff); return d; }
-  function isoDate(d){ var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),dd=String(d.getDate()).padStart(2,"0"); return y+"-"+m+"-"+dd; }
+  /* Safari (iPad) es estricto parseando fechas desde texto: si algo llega raro
+     devuelve Invalid Date y la pantalla muestra "undefined NaN de Invalid Date".
+     Construimos la fecha por partes y validamos, en vez de confiar en el parser. */
+  function parseIso(iso){
+    var s=String(iso||"").slice(0,10);
+    var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if(m){
+      var d=new Date(+m[1],+m[2]-1,+m[3]);
+      if(!isNaN(d.getTime())) return d;
+    }
+    var hoy=new Date(); return new Date(hoy.getFullYear(),hoy.getMonth(),hoy.getDate());
+  }
+  function isoDate(d){
+    if(!d||isNaN(d.getTime())){ var t=new Date(); d=new Date(t.getFullYear(),t.getMonth(),t.getDate()); } var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),dd=String(d.getDate()).padStart(2,"0"); return y+"-"+m+"-"+dd; }
   function fmtDMY(d){ return String(d.getDate()).padStart(2,"0")+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+d.getFullYear(); }
   function parseTime(v){ var p=String(v).split(":"); var h=Number(p[0]),m=Number(p[1]); return h+(m||0)/60; }
   function min2t(mins){ var x=Math.round(mins); x=Math.max(HSTART*60,Math.min(HEND*60,x)); var h=Math.floor(x/60)%24,m=x%60; return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0"); }
@@ -655,7 +668,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function daySummaryHtml(){
     if(!state.daySummaryIso) return "";
     var iso=state.daySummaryIso;
-    var d=new Date(iso+"T00:00:00"); var wd=d.getDay(); wd=(wd+6)%7;
+    var d=parseIso(iso); var wd=d.getDay(); wd=(wd+6)%7;
     var dateLabel=DAYS[wd]+" "+d.getDate()+" de "+d.toLocaleDateString("es-CL",{month:"long"});
     var dayShifts=state.shifts.filter(function(s){ return s.date===iso; }).sort(function(a,b){ return parseTime(a.start)-parseTime(b.start); });
     var isPast=iso<isoDate(new Date());
@@ -724,9 +737,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 
   /* ============ drawer ============ */
   /* turno anterior más cercano (por fecha+hora de término) para heredar el inventario final como inicial */
-  function shiftEndMoment(s){ var dd=new Date(s.date+"T00:00:00"); return dd.getTime()+endHrs(s)*3600000; }
+  function shiftEndMoment(s){ var dd=parseIso(s.date); return dd.getTime()+endHrs(s)*3600000; }
   function findPrevShiftFor(iso,startTime){
-    var target=new Date(iso+"T00:00:00").getTime()+parseTime(startTime)*3600000;
+    var target=parseIso(iso).getTime()+parseTime(startTime)*3600000;
     var best=null,bestEnd=-Infinity;
     state.shifts.forEach(function(s){
       if(!s.invFinal||!s.invFinal.length) return;
@@ -788,7 +801,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       realByProduct:ps.map(function(p,i){ var rb=s.realByProduct&&s.realByProduct[i]; return {kg:rb?String(rb.kg):"",mesh:rb?String(rb.mesh):""}; }) };
     state.editingId=id; state.drawerOpen=true; state.chooser=null; render();
   }
-  function openPending(id){ var s=findShift(id); if(!s) return; state.weekStartMs=getMonday(new Date(s.date+"T00:00:00")).getTime(); ensureWeek(state.weekStartMs); state.scrollReal=true; openEdit(id); }
+  function openPending(id){ var s=findShift(id); if(!s) return; state.weekStartMs=getMonday(parseIso(s.date)).getTime(); ensureWeek(state.weekStartMs); state.scrollReal=true; openEdit(id); }
   function isFelipe(){ try{ return !!(window.TICloud && window.TICloud.user && (window.TICloud.user.email||"").toLowerCase()==="felipe@theice.cl"); }catch(e){ return false; } }
   /* ===== Vista por secciones del reefer 40 pies (PROTOTIPO) =====
      16 secciones de pallets: 10 de Original 3 kg, 4 de Mini 3 kg, 2 de Original 2 kg Retail.
@@ -1112,7 +1125,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function duplicateShiftToNextDay(){
     var id=state.editingId; if(!id) return;
     var s=findShift(id); if(!s) return;
-    var nextDate=new Date(s.date+"T00:00:00"); nextDate.setDate(nextDate.getDate()+1);
+    var nextDate=parseIso(s.date); nextDate.setDate(nextDate.getDate()+1);
     var newIso=isoDate(nextDate);
     var copy=JSON.parse(JSON.stringify(s));
     copy.id=uid();
@@ -1851,9 +1864,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     /* ---------- REGISTRO DE TURNO (vista simple para jefes de turno) ---------- */
     var registroBody="";
     if(state.view==="registro"){
-      if(!state.registroIso) state.registroIso=todayIso;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(String(state.registroIso||""))) state.registroIso=todayIso;
       var rIso=state.registroIso;
-      var rDate=new Date(rIso+"T00:00:00");
+      var rDate=parseIso(rIso);
       var rTurnos=state.shifts.filter(function(s){ return s.date===rIso; }).sort(function(a,b){ return (a.start||"").localeCompare(b.start||""); });
 
       var dayNav='<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px"><button class="ti-hbtn ti-press" data-act="registroDay" data-dir="-1" style="width:40px;height:40px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);display:grid;place-items:center;color:var(--ti-text,#14202B)">'+IC.chevL()+'</button><div style="flex:1;text-align:center;font:700 16px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+DAYS[(rDate.getDay()+6)%7]+' '+rDate.getDate()+' de '+rDate.toLocaleDateString("es-CL",{month:"long"})+(rIso===todayIso?' <span style="font:700 10px \'Space Grotesk\';color:var(--ti-accent,#0E8FD6)">· HOY</span>':'')+'</div><button class="ti-hbtn ti-press" data-act="registroDay" data-dir="1" style="width:40px;height:40px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);display:grid;place-items:center;color:var(--ti-text,#14202B)">'+IC.chevR()+'</button>'+(rIso!==todayIso?'<button class="ti-hbtn ti-press" data-act="registroToday" style="height:40px;padding:0 16px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">Hoy</button>':'')+'</div>';
@@ -1943,7 +1956,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var lastClosedShift=closedSortedEarly[closedSortedEarly.length-1];
         lastInvEarly=(lastClosedShift.invFinal||[]).reduce(function(a,x){ return a+Number(x.kg||0); },0);
       }
-      var daysInRangeEarly=Math.max(1,Math.round((new Date(rt+"T00:00:00")-new Date(rf+"T00:00:00"))/864e5)+1);
+      var daysInRangeEarly=Math.max(1,Math.round((parseIso(rt)-parseIso(rf))/864e5)+1);
       var avgConsumoEarly=salTotalRango/daysInRangeEarly;
       var coberturaDiasEarly=(avgConsumoEarly>0&&lastInvEarly!=null)?(lastInvEarly/avgConsumoEarly):null;
       var coberturaCriticaEarly=coberturaDiasEarly!=null&&coberturaDiasEarly<1;
@@ -1971,7 +1984,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var rankRows=prodArr.map(function(p,i){ return '<tr><td class="ti-num" style="color:var(--ti-muted,#647787)">'+(i+1)+'</td><td><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:9px;height:9px;border-radius:3px;background:'+p.color+'"></span>'+esc(p.name)+'</span></td><td class="ti-num">'+fmt(p.kg)+' kg</td><td class="ti-num">'+fmt(p.mesh)+'</td><td style="width:34%"><div style="display:flex;align-items:center;gap:10px"><div style="flex:1;height:8px;border-radius:6px;background:var(--ti-surface2,#F3F6F9);overflow:hidden"><div style="height:100%;width:'+p.pct+'%;background:'+p.color+';border-radius:6px"></div></div><span class="ti-num" style="width:52px;color:var(--ti-muted,#647787)">'+fmt1(p.pct)+'%</span></div></td></tr>'; }).join("")||'<tr><td colspan="5" style="text-align:center;color:var(--ti-muted,#647787);padding:22px">Sin producción real todavía en este rango.</td></tr>';
         var ranking='<section style="'+CARD+';overflow:hidden">'+sectionHead("Ranking de productos","Ordenado por kilos reales producidos")+'<div style="overflow:auto"><table class="ti-tbl"><thead><tr><th style="width:44px">#</th><th>Producto</th><th style="text-align:right">Kg real</th><th style="text-align:right">Mallas</th><th>Peso</th></tr></thead><tbody>'+rankRows+'</tbody></table></div></section>';
         var sorted=vis.slice().sort(function(a,b){ return a.date.localeCompare(b.date)||parseTime(a.start)-parseTime(b.start); });
-        var rows=sorted.map(function(s){ var wd=new Date(s.date+"T00:00:00").getDay(); wd=(wd+6)%7; var mk=metaKg(s); var realCell,varCell,cpkCell; if(s.closed){ realCell=fmt(s.kgReal||0)+" kg"; var diff=(s.kgReal||0)-mk; var col=diff>=0?"var(--ti-ok,#12A150)":"var(--ti-danger,#e5484d)"; varCell=diff===0?'<span style="color:var(--ti-muted,#647787)">En meta</span>':'<span style="color:'+col+';font-weight:600">'+(diff>0?"+":"")+fmt(diff)+' kg</span>'; cpkCell=(s.kgReal>0)?("$"+fmt(Math.round(laborCost(s)/s.kgReal))):'<span style="color:var(--ti-muted,#647787)">—</span>'; } else { realCell='<span style="color:var(--ti-muted,#647787)">—</span>'; varCell='<span style="color:var(--ti-muted,#647787)">—</span>'; cpkCell='<span style="color:var(--ti-muted,#647787)">—</span>'; } return '<tr class="ti-row" data-act="editShift" data-id="'+s.id+'" style="cursor:pointer"><td><div style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(s.title)+'</div><div style="font:500 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+esc(productLabel(s))+'</div></td><td style="white-space:nowrap">'+DAYS_SHORT[wd]+' '+new Date(s.date+"T00:00:00").getDate()+'</td><td class="ti-num">'+esc(timeLabel(s))+'</td><td class="ti-num">'+pcount(s)+'</td><td class="ti-num">'+fmt(mk)+' kg</td><td class="ti-num">'+realCell+'</td><td class="ti-num">'+varCell+'</td><td class="ti-num">$'+fmt(laborCost(s))+'</td><td class="ti-num">'+cpkCell+'</td><td>'+estadoPill(s)+'</td></tr>'; }).join("");
+        var rows=sorted.map(function(s){ var wd=parseIso(s.date).getDay(); wd=(wd+6)%7; var mk=metaKg(s); var realCell,varCell,cpkCell; if(s.closed){ realCell=fmt(s.kgReal||0)+" kg"; var diff=(s.kgReal||0)-mk; var col=diff>=0?"var(--ti-ok,#12A150)":"var(--ti-danger,#e5484d)"; varCell=diff===0?'<span style="color:var(--ti-muted,#647787)">En meta</span>':'<span style="color:'+col+';font-weight:600">'+(diff>0?"+":"")+fmt(diff)+' kg</span>'; cpkCell=(s.kgReal>0)?("$"+fmt(Math.round(laborCost(s)/s.kgReal))):'<span style="color:var(--ti-muted,#647787)">—</span>'; } else { realCell='<span style="color:var(--ti-muted,#647787)">—</span>'; varCell='<span style="color:var(--ti-muted,#647787)">—</span>'; cpkCell='<span style="color:var(--ti-muted,#647787)">—</span>'; } return '<tr class="ti-row" data-act="editShift" data-id="'+s.id+'" style="cursor:pointer"><td><div style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(s.title)+'</div><div style="font:500 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+esc(productLabel(s))+'</div></td><td style="white-space:nowrap">'+DAYS_SHORT[wd]+' '+parseIso(s.date).getDate()+'</td><td class="ti-num">'+esc(timeLabel(s))+'</td><td class="ti-num">'+pcount(s)+'</td><td class="ti-num">'+fmt(mk)+' kg</td><td class="ti-num">'+realCell+'</td><td class="ti-num">'+varCell+'</td><td class="ti-num">$'+fmt(laborCost(s))+'</td><td class="ti-num">'+cpkCell+'</td><td>'+estadoPill(s)+'</td></tr>'; }).join("");
         var totalRow='<tr style="background:var(--ti-surface2,#F3F6F9)"><td style="font-weight:700">Total semana</td><td></td><td></td><td class="ti-num" style="font-weight:700">'+vis.reduce(function(a,s){return a+pcount(s);},0)+'</td><td class="ti-num" style="font-weight:700">'+fmt(mKg)+' kg</td><td class="ti-num" style="font-weight:700">'+(closedVis.length?fmt(rKg)+" kg":"—")+'</td><td></td><td class="ti-num" style="font-weight:700">$'+fmt(cost)+'</td><td class="ti-num" style="font-weight:700">'+(realCPK!=null?"$"+fmt(realCPK):"—")+'</td><td></td></tr>';
         var cumpl_tbl='<section style="'+CARD+';overflow:hidden">'+sectionHead("Cumplimiento por turno","Meta vs. real de la semana · haz clic para editar")+'<div style="overflow:auto"><table class="ti-tbl"><thead><tr><th>Turno</th><th>Día</th><th style="text-align:right">Horario</th><th style="text-align:right">Pers.</th><th style="text-align:right">Kg meta</th><th style="text-align:right">Kg real</th><th style="text-align:right">Variación</th><th style="text-align:right">Costo</th><th style="text-align:right">Costo/kg</th><th>Estado</th></tr></thead><tbody>'+rows+totalRow+'</tbody></table></div></section>';
         var bagUsed={}; closedVis.forEach(function(s){ (s.products||[]).forEach(function(p,i){ var rb=s.realByProduct&&s.realByProduct[i]; var mesh=rb?Number(rb.mesh||0):0; var b=bagsPerMalla(p.product); if(b>0&&mesh>0){ bagUsed[p.product]=(bagUsed[p.product]||0)+mesh*b; } }); });
@@ -2014,7 +2027,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
           return '<tr><td><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:9px;height:9px;border-radius:3px;background:'+prodColor(p)+'"></span>'+esc(p)+'</span></td><td class="ti-num">'+fmt(prod)+' kg</td><td class="ti-num">'+fmt(sal)+' kg</td><td class="ti-num" style="font-weight:600">'+fmt(teo)+' kg</td><td class="ti-num">'+(fis!=null?fmt(fis)+' kg':'<span style="color:var(--ti-muted,#647787)">—</span>')+'</td><td class="ti-num" style="color:'+dcol+';font-weight:600">'+(desc!=null?((desc>0?"+":"")+fmt(desc)+' kg'):'—')+'</td></tr>';
         }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--ti-muted,#647787);padding:22px">Sin datos para cruzar en el rango.</td></tr>';
         var crossTable='<section style="'+CARD+';overflow:hidden">'+sectionHead("Cruce de inventario","Producido − Salidas = teórico · vs conteo físico = descuadre")+'<div style="overflow:auto"><table class="ti-tbl"><thead><tr><th>Producto</th><th style="text-align:right">Producido</th><th style="text-align:right">Salidas</th><th style="text-align:right">Teórico</th><th style="text-align:right">Conteo físico</th><th style="text-align:right">Descuadre</th></tr></thead><tbody>'+crossRows+'</tbody></table></div><div style="padding:2px 18px 15px;font:500 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">El descuadre compara el conteo físico con el teórico (producción − salidas). Necesita turnos cerrados y salidas (HubSpot o manuales) en el rango.</div></section>';
-        var dayRange=(function(){ var out=[]; var d=new Date(rf+"T00:00:00"); var end=new Date(rt+"T00:00:00"); var guard=0; while(d<=end&&guard<62){ out.push(isoDate(d)); d.setDate(d.getDate()+1); guard++; } return out; })();
+        var dayRange=(function(){ var out=[]; var d=parseIso(rf); var end=parseIso(rt); var guard=0; while(d<=end&&guard<62){ out.push(isoDate(d)); d.setDate(d.getDate()+1); guard++; } return out; })();
         var dayStats=dayRange.map(function(iso,i){
           var ds=vis.filter(function(s){ return s.date===iso; });
           var produced=ds.reduce(function(a,s){ return a+(s.closed?Number(s.kgReal||0):metaKg(s)); },0);
@@ -2053,7 +2066,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var barsSvg=dayStats.map(function(d,i){
           var colX=padL+i*slotW; var cx=colX+slotW/2;
           var bw=Math.min(34,slotW*0.5); var bh=(d.produced/chartScaleTop)*plotH; var by=padT+plotH-bh;
-          var wd=new Date(d.iso+"T00:00:00").getDay(); wd=(wd+6)%7; var lbl=DAYS_SHORT[wd]+" "+new Date(d.iso+"T00:00:00").getDate();
+          var wd=parseIso(d.iso).getDay(); wd=(wd+6)%7; var lbl=DAYS_SHORT[wd]+" "+parseIso(d.iso).getDate();
           var tipX=Math.min(Math.max(cx,padL+tipW/2+2),CW-padR-tipW/2-2);
           var tipLines=[esc(lbl)];
           tipLines.push((d.hasClosed?"Real: ":"Meta: ")+fmt(Math.round(d.produced))+" kg");
@@ -2084,7 +2097,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var coberturaChipColor=coberturaCritica?"var(--ti-danger,#e5484d)":(coberturaBaja?"var(--ti-warn,#B26B00)":"var(--ti-text,#14202B)");
         var coberturaChipBg=coberturaCritica?"var(--ti-danger-bg,#fff2f2)":(coberturaBaja?"var(--ti-warn-bg,#fff8ec)":"var(--ti-surface2,#F3F6F9)");
         var coberturaChip='<div style="display:flex;align-items:center;gap:10px;padding:10px 18px 16px;flex-wrap:wrap">'+(coberturaCritica?'<span style="display:inline-flex;align-items:center;gap:6px;font:700 11.5px \'Space Grotesk\';color:var(--ti-danger,#e5484d)">'+IC.alert(15)+'COBERTURA CRÍTICA</span>':'<span style="font:600 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">Cobertura de inventario</span>')+'<span style="font:700 13px \'IBM Plex Mono\';color:'+coberturaChipColor+';background:'+coberturaChipBg+';padding:4px 10px;border-radius:8px">'+(coberturaDias!=null?(fmt1(coberturaDias)+" días"):"—")+'</span><span style="font:500 11.5px \'Space Grotesk\';color:'+(coberturaCritica?"var(--ti-danger,#e5484d)":"var(--ti-muted,#647787)")+'">'+(lastInv!=null?((coberturaCritica?'No alcanza ni un día de venta al ritmo actual. ':'')+'Último inventario: '+fmt(Math.round(lastInv))+' kg ('+esc(lastInvIso)+') · consumo prom. '+fmt(Math.round(avgConsumo))+' kg/día'):'Sin cierres con inventario en el rango')+'</span></div>';
-        var printOnlyTable='<div class="ti-printonly" style="padding:0 18px 14px"><table class="ti-tbl"><thead><tr><th>Día</th><th style="text-align:right">Producción (kg)</th><th style="text-align:right">Inventario final (kg)</th><th style="text-align:right">Costo/kg</th></tr></thead><tbody>'+dayStats.map(function(d){ var wd=new Date(d.iso+"T00:00:00").getDay(); wd=(wd+6)%7; var lbl=DAYS_SHORT[wd]+" "+new Date(d.iso+"T00:00:00").getDate(); return '<tr><td>'+esc(lbl)+'</td><td class="ti-num">'+fmt(Math.round(d.produced))+(d.hasClosed?'':' (meta)')+'</td><td class="ti-num">'+(d.inv!=null?fmt(Math.round(d.inv)):'—')+'</td><td class="ti-num">'+(d.costoKg!=null?"$"+fmt(Math.round(d.costoKg)):'—')+'</td></tr>'; }).join("")+'</tbody></table></div>';
+        var printOnlyTable='<div class="ti-printonly" style="padding:0 18px 14px"><table class="ti-tbl"><thead><tr><th>Día</th><th style="text-align:right">Producción (kg)</th><th style="text-align:right">Inventario final (kg)</th><th style="text-align:right">Costo/kg</th></tr></thead><tbody>'+dayStats.map(function(d){ var wd=parseIso(d.iso).getDay(); wd=(wd+6)%7; var lbl=DAYS_SHORT[wd]+" "+parseIso(d.iso).getDate(); return '<tr><td>'+esc(lbl)+'</td><td class="ti-num">'+fmt(Math.round(d.produced))+(d.hasClosed?'':' (meta)')+'</td><td class="ti-num">'+(d.inv!=null?fmt(Math.round(d.inv)):'—')+'</td><td class="ti-num">'+(d.costoKg!=null?"$"+fmt(Math.round(d.costoKg)):'—')+'</td></tr>'; }).join("")+'</tbody></table></div>';
         var dailyChart='<section style="'+CARD+';overflow:hidden">'+sectionHead("Producción e inventario día a día","Barras = producción diaria · línea verde = inventario final · línea morada = costo/kg")+'<div style="overflow-x:auto">'+chartLegend+'<div style="padding:6px 18px 4px">'+chartSvg+'</div></div>'+printOnlyTable+coberturaChip+'</section>';
 
         // Simulación: cobertura para una semana de alta demanda (50 toneladas).
@@ -2109,11 +2122,11 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 
         var cierreSemanaHtml=(function(){
           if(!lastClosedShift) return '<section style="'+CARD+';overflow:hidden;border-color:var(--ti-line,#DCE3EA)"><div style="padding:20px;text-align:center;color:var(--ti-muted,#647787);font:500 13px \'Space Grotesk\'">Todavía no hay ningún turno cerrado en el rango — no hay un inventario de cierre que mostrar.</div></section>';
-          var wd=new Date(lastClosedShift.date+"T00:00:00").getDay(); wd=(wd+6)%7;
+          var wd=parseIso(lastClosedShift.date).getDay(); wd=(wd+6)%7;
           var tipoTxt=lastClosedShift.type==="b"?"Turno Noche":(lastClosedShift.type==="am"?"Turno AM":esc(lastClosedShift.title));
           var invFinRows=(lastClosedShift.invFinal||[]).map(function(r){ return '<div style="display:flex;align-items:center;gap:10px;padding:5px 0"><span style="width:8px;height:8px;border-radius:2px;flex:none;background:'+prodColor(r.product)+'"></span><span style="flex:1;min-width:0;font:600 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(r.product)+'</span><span style="font:600 12px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(Math.round(Number(r.kg||0)))+' kg</span></div>'; }).join("")||'<div style="font:500 12.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">Sin desglose por producto registrado.</div>';
           return '<section style="'+CARD+';overflow:hidden;border-color:var(--ti-accent,#0E8FD6);border-width:1.5px">'
-            +'<div style="padding:15px 18px;border-bottom:1px solid var(--ti-line,#DCE3EA);background:var(--ti-accent-soft,#E4F2FB)"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">Con qué inventario partimos la próxima semana</div><div style="margin-top:3px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Cierre del último turno del período — '+DAYS[wd]+' '+new Date(lastClosedShift.date+"T00:00:00").getDate()+' · '+tipoTxt+(lastClosedShift.type==="b"?' (si hubo turno de noche, ese es el que manda)':'')+'</div></div>'
+            +'<div style="padding:15px 18px;border-bottom:1px solid var(--ti-line,#DCE3EA);background:var(--ti-accent-soft,#E4F2FB)"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">Con qué inventario partimos la próxima semana</div><div style="margin-top:3px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Cierre del último turno del período — '+DAYS[wd]+' '+parseIso(lastClosedShift.date).getDate()+' · '+tipoTxt+(lastClosedShift.type==="b"?' (si hubo turno de noche, ese es el que manda)':'')+'</div></div>'
             +'<div style="padding:18px;display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">'
               +'<div style="flex:none"><div style="font:700 34px \'IBM Plex Mono\';color:var(--ti-accent,#0E8FD6);letter-spacing:-.02em">'+fmt(Math.round(lastInvEarly))+'</div><div style="font:600 11px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);margin-top:-4px">kg totales de cierre</div></div>'
               +'<div style="flex:1;min-width:220px;border-left:1px solid var(--ti-line,#DCE3EA);padding-left:22px">'+invFinRows+'</div>'
@@ -2158,7 +2171,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var pend=pendingShifts();
     var bannerHtml="";
     if(pend.length){
-      var chipsP=pend.slice(0,8).map(function(s){ var wd=new Date(s.date+"T00:00:00").getDay(); wd=(wd+6)%7; return '<button class="ti-pending-chip ti-press" data-act="pending" data-id="'+s.id+'" style="display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 11px;border-radius:9px;background:var(--ti-surface,#fff);border:1px solid var(--ti-warn-bd,#F6DFA6);color:var(--ti-text,#14202B);font:600 12px \'Space Grotesk\'"><span style="width:7px;height:7px;border-radius:50%;background:var(--ti-warn,#B26B00)"></span>'+esc(s.title)+' · '+DAYS_SHORT[wd]+' '+esc(s.start)+'</button>'; }).join("");
+      var chipsP=pend.slice(0,8).map(function(s){ var wd=parseIso(s.date).getDay(); wd=(wd+6)%7; return '<button class="ti-pending-chip ti-press" data-act="pending" data-id="'+s.id+'" style="display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 11px;border-radius:9px;background:var(--ti-surface,#fff);border:1px solid var(--ti-warn-bd,#F6DFA6);color:var(--ti-text,#14202B);font:600 12px \'Space Grotesk\'"><span style="width:7px;height:7px;border-radius:50%;background:var(--ti-warn,#B26B00)"></span>'+esc(s.title)+' · '+DAYS_SHORT[wd]+' '+esc(s.start)+'</button>'; }).join("");
       var more=pend.length>8?'<span style="font:600 12px \'Space Grotesk\';color:var(--ti-warn,#B26B00)">+'+(pend.length-8)+' más</span>':'';
       bannerHtml='<div role="alert" aria-live="polite" data-noprint style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 16px;border-radius:14px;background:var(--ti-warn-bg,#FFF5E0);border:1px solid var(--ti-warn-bd,#F6DFA6)"><span style="display:inline-flex;align-items:center;gap:9px;color:var(--ti-warn,#B26B00);flex:none"><span style="animation:tiPulse 2.4s ease-in-out infinite;display:flex">'+IC.alert()+'</span><span style="font:700 13px \'Space Grotesk\'">'+pend.length+' turno'+(pend.length>1?"s":"")+' finalizado'+(pend.length>1?"s":"")+' sin cierre</span></span><span style="font:500 12.5px \'Space Grotesk\';color:var(--ti-label,#4f5b70)">Registra los kilos y mallas reales para dejarlos fijos:</span><span style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+chipsP+more+'</span></div>';
     }
@@ -2297,12 +2310,12 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var act=btn.getAttribute("data-act");
     if(act==="nav") setView(btn.getAttribute("data-view"));
     else if(act==="calmode") setCalMode(btn.getAttribute("data-mode"));
-    else if(act==="monthday"){ var mi=btn.getAttribute("data-iso"); state.chooser=null; state.weekStartMs=getMonday(new Date(mi+"T00:00:00")).getTime(); ensureWeek(state.weekStartMs); state.calMode="semana"; render(); }
+    else if(act==="monthday"){ var mi=btn.getAttribute("data-iso"); state.chooser=null; state.weekStartMs=getMonday(parseIso(mi)).getTime(); ensureWeek(state.weekStartMs); state.calMode="semana"; render(); }
     else if(act==="minicalprev"){ monthShift(-1); render(); }
     else if(act==="minicalnext"){ monthShift(1); render(); }
     else if(act==="minicalday"){ var pi=btn.getAttribute("data-iso"); state.daySummaryIso=pi; render(); }
     else if(act==="closeDaySummary"){ state.daySummaryIso=null; render(); }
-    else if(act==="daySummaryGoWeek"){ var gi=state.daySummaryIso; state.daySummaryIso=null; state.view="calendario"; state.chooser=null; state.weekStartMs=getMonday(new Date(gi+"T00:00:00")).getTime(); ensureWeek(state.weekStartMs); state.calMode="semana"; var gd=new Date(gi+"T00:00:00"); state.monthMs=new Date(gd.getFullYear(),gd.getMonth(),1).getTime(); render(); }
+    else if(act==="daySummaryGoWeek"){ var gi=state.daySummaryIso; state.daySummaryIso=null; state.view="calendario"; state.chooser=null; state.weekStartMs=getMonday(parseIso(gi)).getTime(); ensureWeek(state.weekStartMs); state.calMode="semana"; var gd=parseIso(gi); state.monthMs=new Date(gd.getFullYear(),gd.getMonth(),1).getTime(); render(); }
     else if(act==="openShiftFromSummary"){ state.daySummaryIso=null; openEdit(btn.getAttribute("data-id")); }
     else if(act==="theme") setTheme(btn.getAttribute("data-theme"));
     else if(act==="prevWeek") prevWeek();
@@ -2344,7 +2357,14 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(act==="quickAddOpen"){ state.quickAddOpen=true; state.quickAddDraft={title:"",start:"16:00",end:"22:00"}; render(); }
     else if(act==="quickAddCancel"){ state.quickAddOpen=false; state.quickAddDraft=null; render(); }
     else if(act==="quickAddCreate") quickAddShift();
-    else if(act==="registroDay"){ var rd=new Date((state.registroIso||isoDate(new Date()))+"T00:00:00"); rd.setDate(rd.getDate()+Number(btn.getAttribute("data-dir"))); state.registroIso=isoDate(rd); state.quickEditId=null; render(); }
+    else if(act==="registroDay"){
+      var dir=Number(btn.getAttribute("data-dir"))||0;
+      var rd=parseIso(state.registroIso);          // si viene mala, parseIso devuelve hoy
+      rd.setDate(rd.getDate()+dir);
+      var nuevoIso=isoDate(rd);
+      if(/^\d{4}-\d{2}-\d{2}$/.test(nuevoIso)) state.registroIso=nuevoIso;
+      state.quickEditId=null; state.quickDraft=null; render();
+    }
     else if(act==="registroToday"){ state.registroIso=isoDate(new Date()); state.quickEditId=null; render(); }
     else if(act==="comprasTab"){ state.comprasTab=btn.getAttribute("data-tab"); render(); }
     else if(act==="addOC"){ var cd1=state.compraDraft||{}; if(!cd1.ocCantidad||Number(cd1.ocCantidad)<=0){ alert("Ingresa la cantidad total de la OC."); return; } addOC(cd1.ocProducto,cd1.ocFecha||isoDate(new Date()),cd1.ocCantidad,cd1.ocNotas); state.compraDraft.ocCantidad=""; state.compraDraft.ocNotas=""; render(); }
