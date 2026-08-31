@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-31-solo-final-y-meta-mes -->
+<!-- BUILD-MARK: 2026-08-31-registro-mes-saco-maquina -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-08-31-solo-final-y-meta-mes";
+  var APP_BUILD="2026-08-31-registro-mes-saco-maquina";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -968,7 +968,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         if(!prev||!prev.invFinal) return [];
         return (s.products||[]).map(function(p){ var kg=invLookup(prev.invFinal,p.product); return kg!==""?{product:p.product,kg:kg}:null; }).filter(Boolean);
       })();
-      state.quickDraft={names:rosterOficial.slice(),attendance:attOficial,invInicial:invIniPrefill,invFinal:(s.invFinal||[]).slice(),noHubo:false};
+      state.quickDraft={names:rosterOficial.slice(),attendance:attOficial,invInicial:invIniPrefill,invFinal:(s.invFinal||[]).slice(),noHubo:false,maquina:(s.maquina||"si")};
     }
     state.quickEditId=id; render();
   }
@@ -1014,6 +1014,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     // Cámara 2 (sacos de 20 kg) -> campos de materia prima del turno
     if(qd.sacosIni!==undefined&&qd.sacosIni!=="") d.invInicial20={sacos:String(qd.sacosIni),kg:String(Number(qd.sacosIni)*KG_SACO)};
     if(qd.sacosFin!==undefined&&qd.sacosFin!=="") d.invFinal20={sacos:String(qd.sacosFin),kg:String(Number(qd.sacosFin)*KG_SACO)};
+    if(qd.maquina) d.maquina=qd.maquina;
     if(qd.noHubo){
       var obj=buildShift();
       obj.realByProduct=obj.products.map(function(){ return {kg:0,mesh:0}; });
@@ -1925,8 +1926,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
                 '</select><button class="ti-ghost ti-press" data-act="quickAddName" style="height:42px;padding:0 16px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13px \'Space Grotesk\'">'+IC.plus(15)+'</button></div>'+
                 '<div style="margin-top:7px;font:500 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">¿Falta alguien en la lista? Pídele al administrador que la agregue en Configuración → Personas activas.</div>';
             })()+'</div>';
-          var rows=(s.products||[]).map(function(p){
-            var name=p.product;
+          var rows=activeProducts().map(function(pn){
+            var name=pn;
             var finEntry=(qd.invFinal||[]).filter(function(r){return r&&r.product===name;})[0]||{};
             var kgFin=finEntry.mesh!==""&&finEntry.mesh!=null?Math.round(Number(finEntry.mesh||0)*kgMalla(name)):null;
             return '<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--ti-line2,#E8EDF2)">'+
@@ -1934,6 +1935,14 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
               '<input type="number" min="0" step="1" inputmode="numeric" pattern="[0-9]*" placeholder="—" value="'+esc(finEntry.mesh||"")+'" data-qinv-which="invFinal" data-qinv-product="'+esc(name)+'" style="width:118px;height:56px;font-size:22px;font-weight:700;text-align:center;flex:none">'+
               '</div>';
           }).join("");
+          // Saco 20 kg: no es malla, se cuenta en sacos y va aparte (materia prima)
+          (function(){
+            var sc=sacosVal("invFinal");
+            rows+='<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--ti-line2,#E8EDF2)">'+
+              '<div style="flex:1;min-width:0;display:flex;align-items:center;gap:9px"><span style="width:11px;height:11px;border-radius:3px;flex:none;background:var(--ti-muted,#647787)"></span><div style="min-width:0"><div style="font:600 14.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">Saco 20 kg</div><div style="font:600 11.5px \'IBM Plex Mono\';color:var(--ti-muted,#647787)">'+(sc!=null?(fmt(sc*KG_SACO)+' kg'):'en sacos')+'</div></div></div>'+
+              '<input type="number" min="0" step="1" inputmode="numeric" pattern="[0-9]*" placeholder="—" value="'+esc(sc==null?"":sc)+'" data-sacos-which="invFinal" style="width:118px;height:56px;font-size:22px;font-weight:700;text-align:center;flex:none">'+
+            '</div>';
+          })();
           var colHead='<div style="display:flex;align-items:center;gap:12px;padding:0 0 4px"><div style="flex:1;font:700 10.5px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787)">Producto</div><div style="width:118px;text-align:center;font:700 10.5px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);flex:none">Mallas al cierre</div></div>';
           var modoSec=state.invModo==="secciones";
           var toggle='<div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--ti-line2,#E8EDF2)">'+
@@ -1942,12 +1951,17 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
             '<button data-act="invModo" data-modo="lista" style="height:30px;padding:0 12px;border-radius:8px;border:0;cursor:pointer;font:600 11.5px \'Space Grotesk\';background:'+(!modoSec?"var(--ti-surface,#fff)":"transparent")+';color:'+(!modoSec?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+'">Por producto</button>'+
             '<button data-act="invModo" data-modo="secciones" style="height:30px;padding:0 12px;border-radius:8px;border:0;cursor:pointer;font:600 11.5px \'Space Grotesk\';background:'+(modoSec?"var(--ti-surface,#fff)":"transparent")+';color:'+(modoSec?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+'">Por secciones <span style="font-size:9px;opacity:.7">BETA</span></button>'+
             '</div></div>';
+          var maq=(qd.maquina===undefined||qd.maquina===null)?"si":qd.maquina;
+          var maqBtn=function(v,txt,col){ var on=maq===v; return '<button data-act="quickMaquina" data-val="'+v+'" style="flex:1;height:46px;border-radius:11px;cursor:pointer;border:1.5px solid '+(on?col:"var(--ti-line,#DCE3EA)")+';background:'+(on?col+"14":"var(--ti-surface,#fff)")+';color:'+(on?col:"var(--ti-muted,#647787)")+';font:700 13.5px \'Space Grotesk\'">'+txt+'</button>'; };
+          var maquinaBlock='<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--ti-line2,#E8EDF2)">'+
+            '<div style="font:700 10.5px \'Space Grotesk\';letter-spacing:.06em;text-transform:uppercase;color:var(--ti-muted,#647787);margin-bottom:8px">¿La máquina estuvo produciendo?</div>'+
+            '<div style="display:flex;gap:9px">'+maqBtn("si","Sí, produciendo","var(--ti-ok,#12A150)")+maqBtn("no","No, detenida","var(--ti-danger,#e5484d)")+'</div></div>';
           var invBody=modoSec
             ? ('<div style="margin-top:12px">'+reeferHtml("invFinal")+'</div>')
             : ('<div style="padding-top:12px">'+colHead+rows+'</div>');
           body='<div style="padding:0 18px 18px;border-top:1px solid var(--ti-line,#DCE3EA)">'+
             namesSection+
-            toggle+invBody+
+            maquinaBlock+toggle+invBody+
             '<div style="display:flex;gap:10px;margin-top:16px">'+
             '<button class="ti-ghost ti-press" data-act="saveQuickDraft" style="flex:1;height:46px;border-radius:12px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 14px \'Space Grotesk\'">Guardar</button>'+
             '<button class="ti-primary ti-press" data-act="approveRegistro" title="Requiere clave" style="flex:1;height:46px;border-radius:12px;background:var(--ti-accent,#0E8FD6);color:#fff;font:700 14px \'Space Grotesk\'">'+IC.lock(14)+' Llevar al calendario</button>'+
@@ -1964,8 +1978,70 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         ('<section style="'+CARD+';overflow:hidden;margin-top:6px"><div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px"><input type="text" placeholder="Nombre del turno (ej. Turno tarde)" value="'+esc(qad.title)+'" data-quickadd-f="title" style="height:44px"><div style="display:flex;gap:10px"><input type="time" value="'+esc(qad.start)+'" data-quickadd-f="start" style="height:44px;flex:1"><input type="time" value="'+esc(qad.end)+'" data-quickadd-f="end" style="height:44px;flex:1"></div><div style="display:flex;gap:10px;margin-top:4px"><button class="ti-ghost ti-press" data-act="quickAddCancel" style="flex:1;height:44px;border-radius:12px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13.5px \'Space Grotesk\'">Cancelar</button><button class="ti-primary ti-press" data-act="quickAddCreate" style="flex:1;height:44px;border-radius:12px;background:var(--ti-accent,#0E8FD6);color:#fff;font:600 13.5px \'Space Grotesk\'">Crear turno</button></div></div></section>'):
         ('<button class="ti-ghost ti-press" data-act="quickAddOpen" style="width:100%;height:48px;border-radius:14px;border:1.5px dashed var(--ti-line,#DCE3EA);background:transparent;color:var(--ti-muted,#647787);font:600 13.5px \'Space Grotesk\';display:flex;align-items:center;justify-content:center;gap:8px">'+IC.plus(17)+'Agregar turno que falte</button>');
 
+      var mtBtn=function(v,txt){ var on=(!!state.registroMes)===(v==="mes"); return '<button data-act="registroModo" data-modo="'+v+'" style="height:36px;padding:0 18px;border-radius:10px;border:0;cursor:pointer;font:600 12.5px \'Space Grotesk\';background:'+(on?"var(--ti-surface,#fff)":"transparent")+';color:'+(on?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+';box-shadow:'+(on?"0 2px 8px rgba(20,32,43,.12)":"none")+'">'+txt+'</button>'; };
+      var modoTabs='<div style="display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA);width:fit-content;margin-bottom:16px">'+mtBtn("dia","Día")+mtBtn("mes","Resumen del mes")+'</div>';
+      var navMes=function(d){
+        var nom=d.toLocaleDateString("es-CL",{month:"long",year:"numeric"});
+        return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="ti-hbtn ti-press" data-act="registroMesNav" data-dir="-1" style="width:40px;height:40px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);display:grid;place-items:center;color:var(--ti-text,#14202B)">'+IC.chevL()+'</button>'+
+          '<div style="flex:1;text-align:center;font:700 16px \'Space Grotesk\';color:var(--ti-text,#14202B);text-transform:capitalize">'+esc(nom)+'</div>'+
+          '<button class="ti-hbtn ti-press" data-act="registroMesNav" data-dir="1" style="width:40px;height:40px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);display:grid;place-items:center;color:var(--ti-text,#14202B)">'+IC.chevR()+'</button></div>';
+      };
+      // --- vista MES: resumen de lo registrado, para revisar antes de llevar al calendario ---
+      if(state.registroMes){
+        var rd0=parseIso(rIso);
+        var y0=rd0.getFullYear(), m0=rd0.getMonth();
+        var primero=new Date(y0,m0,1), ultimo=new Date(y0,m0+1,0);
+        var arranque=new Date(primero); arranque.setDate(1-((primero.getDay()+6)%7));
+        var celdas="";
+        var cur=new Date(arranque);
+        for(var ci=0; ci<42; ci++){
+          var iso=isoDate(cur);
+          var delMes=cur.getMonth()===m0;
+          var esHoy=iso===todayIso;
+          var futuro=iso>todayIso;
+          var tur=state.shifts.filter(function(s){ return s.date===iso; });
+          var conDato=tur.filter(function(s){ return s.registroDraft||s.closed; });
+          var cuerpo="";
+          if(delMes&&!futuro&&conDato.length){
+            cuerpo=conDato.map(function(s){
+              var rdd=s.registroDraft;
+              var mallas=0, gente=0, maq="si", est="";
+              if(s.closed){ mallas=Math.round(Number(s.meshReal||0)); gente=presentInfo(s).total; maq=s.maquina||"si"; est="ok"; }
+              else if(rdd){
+                mallas=(rdd.invFinal||[]).reduce(function(a,r){ return a+Number((r&&r.mesh)||0); },0);
+                gente=(rdd.names||[]).filter(function(n){ return (rdd.attendance||{})[n]!=="ausente"; }).length;
+                maq=rdd.maquina||"si"; est=rdd.noHubo?"cero":"pend";
+              }
+              var col=est==="ok"?"var(--ti-ok,#12A150)":(est==="cero"?"var(--ti-muted,#647787)":"var(--ti-warn,#B26B00)");
+              var tt=(s.title||"").replace("Turno ","");
+              return '<div style="display:flex;align-items:center;gap:4px;padding:2px 0;font:600 9.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+
+                '<span style="width:5px;height:5px;border-radius:50%;flex:none;background:'+col+'"></span>'+
+                '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(tt)+'</span>'+
+                '<span style="font-family:\'IBM Plex Mono\';color:var(--ti-muted,#647787)">'+fmt(mallas)+'m</span>'+
+                '<span style="font-family:\'IBM Plex Mono\';color:var(--ti-muted,#647787)">'+gente+'p</span>'+
+                (maq==="no"?'<span title="Máquina detenida" style="color:var(--ti-danger,#e5484d);font-weight:700">✕</span>':'')+
+              '</div>';
+            }).join("");
+          } else if(delMes&&!futuro){
+            cuerpo='<div style="margin-top:6px;font:500 10px \'Space Grotesk\';color:var(--ti-muted,#647787);opacity:.6">sin registrar</div>';
+          } else if(delMes){
+            cuerpo='<div style="margin-top:6px;font:500 10px \'Space Grotesk\';color:var(--ti-muted,#647787);opacity:.35">—</div>';
+          }
+          celdas+='<button data-act="registroIrDia" data-iso="'+iso+'" style="text-align:left;min-height:78px;padding:6px 7px;border:0;border-top:1px solid var(--ti-line2,#E8EDF2);border-left:1px solid var(--ti-line2,#E8EDF2);cursor:pointer;background:'+(delMes?(esHoy?"var(--ti-today,rgba(14,143,214,.06))":"var(--ti-surface,#fff)"):"var(--ti-surface2,#F3F6F9)")+';opacity:'+(delMes?1:.45)+'">'+
+            '<div style="font:700 12px \'Space Grotesk\';color:'+(esHoy?"var(--ti-accent,#0E8FD6)":"var(--ti-text,#14202B)")+'">'+cur.getDate()+'</div>'+cuerpo+'</button>';
+          cur.setDate(cur.getDate()+1);
+        }
+        var cab=DAYS_SHORT.map(function(d){ return '<div style="padding:8px 7px;font:700 9.5px \'Space Grotesk\';letter-spacing:.08em;color:var(--ti-muted,#647787);border-left:1px solid var(--ti-line2,#E8EDF2)">'+d+'</div>'; }).join("");
+        var leyenda='<div style="display:flex;gap:14px;flex-wrap:wrap;padding:10px 14px;font:500 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+
+          '<span><b style="color:var(--ti-warn,#B26B00)">●</b> registrado, falta aprobar</span>'+
+          '<span><b style="color:var(--ti-ok,#12A150)">●</b> ya en el calendario</span>'+
+          '<span><b style="color:var(--ti-muted,#647787)">●</b> no hubo turno</span>'+
+          '<span><b>m</b> = mallas · <b>p</b> = personas · <b style="color:var(--ti-danger,#e5484d)">✕</b> máquina detenida</span></div>';
+        registroBody=modoTabs+navMes(rd0)+'<section style="'+CARD+';overflow:hidden"><div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr))">'+cab+celdas+'</div>'+leyenda+'</section>';
+      } else {
       var infoCardR='<div style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:14px;background:var(--ti-accent-soft,#E4F2FB);border:1px solid var(--ti-line,#DCE3EA);margin-bottom:18px"><span style="color:var(--ti-accent,#0E8FD6);flex:none;display:flex;margin-top:1px">'+IC.check(18)+'</span><div style="font:500 13px/1.5 \'Space Grotesk\';color:var(--ti-text,#14202B)">Toca un turno, anota las mallas de inventario inicial y final, y cierra. Nada más que hacer acá.</div></div>';
-      registroBody=infoCardR+dayNav+turnoCards+quickAddHtml;
+      registroBody=modoTabs+infoCardR+dayNav+turnoCards+quickAddHtml;
+      }
     }
 
     /* ---------- REPORTES ---------- */
@@ -2283,7 +2359,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var calToggle=""; if(state.view==="calendario"){ var cb=function(m,l){ var on=state.calMode===m; return '<button class="ti-hbtn ti-press" data-act="calmode" data-mode="'+m+'" aria-pressed="'+on+'" style="height:34px;padding:0 13px;border-radius:9px;font:600 12.5px \'Space Grotesk\';background:'+(on?"var(--ti-surface,#fff)":"transparent")+';color:'+(on?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+';box-shadow:'+(on?"0 2px 8px rgba(20,32,43,.12)":"none")+'">'+l+'</button>'; }; calToggle='<div style="display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)">'+cb("semana","Semana")+cb("mes","Mes")+'</div>'; }
     var monthLabel=new Date(state.monthMs).toLocaleDateString("es-CL",{month:"long",year:"numeric"});
     var vTag=' · v'+APP_BUILD;
-    var subtitle=(state.view==="inventario"?("Conteos y stock · datos al "+todayStr):(state.view==="registro"?"Solo inventario inicial y final de cada turno":(state.view==="compras"?("Órdenes de compra, retiros y stock de insumos · datos al "+todayStr):(state.view==="salidas"?("Despachos · se cruzan con producción · datos al "+todayStr):(state.view==="config"?"Parámetros, personas y stock":(state.view==="reportes"?("Análisis por rango de fechas · datos al "+todayStr):((monthMode()?monthLabel:weekLabel)+" · datos al "+todayStr)))))));
+    var subtitle=(state.view==="inventario"?("Conteos y stock · datos al "+todayStr):(state.view==="registro"?"Inventario de cierre de cada turno":(state.view==="compras"?("Órdenes de compra, retiros y stock de insumos · datos al "+todayStr):(state.view==="salidas"?("Despachos · se cruzan con producción · datos al "+todayStr):(state.view==="config"?"Parámetros, personas y stock":(state.view==="reportes"?("Análisis por rango de fechas · datos al "+todayStr):((monthMode()?monthLabel:weekLabel)+" · datos al "+todayStr)))))));
     var rightAction="";
     if(state.view==="reportes") rightAction='<button class="ti-ghost ti-press" data-act="print" style="display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 15px;border-radius:12px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13.5px \'Space Grotesk\'">'+IC.printer(16)+'Imprimir</button>';
     else if(state.view==="calendario"||state.view==="grupos") rightAction='<button class="ti-primary ti-press" data-act="new" style="display:flex;align-items:center;gap:8px;height:40px;padding:0 16px;border-radius:12px;background:var(--ti-accent,#0E8FD6);color:var(--ti-accent-ink,#fff);font:600 14px \'Space Grotesk\';box-shadow:0 8px 20px var(--ti-accentshadow,rgba(14,143,214,.32))">'+IC.plus(17)+'Nuevo turno</button>';
@@ -2460,6 +2536,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     }
     else if(act==="saveQuickDraft") saveQuickDraft();
     else if(act==="approveRegistro") approveRegistro();
+    else if(act==="quickMaquina"){ state.quickDraft.maquina=btn.getAttribute("data-val"); render(); }
     else if(act==="noHubo") markNoHubo();
     else if(act==="quickToggleAtt") toggleQuickAttendance(btn.getAttribute("data-name"));
     else if(act==="quickAddName") quickAddName();
@@ -2475,6 +2552,15 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       if(/^\d{4}-\d{2}-\d{2}$/.test(nuevoIso)) state.registroIso=nuevoIso;
       state.quickEditId=null; state.quickDraft=null; render();
     }
+    else if(act==="registroModo"){ state.registroMes=(btn.getAttribute("data-modo")==="mes"); state.quickEditId=null; state.quickDraft=null; render(); }
+    else if(act==="registroMesNav"){
+      var rm=parseIso(state.registroIso); rm.setDate(1);
+      rm.setMonth(rm.getMonth()+(Number(btn.getAttribute("data-dir"))||0));
+      var nIso=isoDate(rm);
+      if(/^\d{4}-\d{2}-\d{2}$/.test(nIso)) state.registroIso=nIso;
+      render();
+    }
+    else if(act==="registroIrDia"){ var di=btn.getAttribute("data-iso"); if(/^\d{4}-\d{2}-\d{2}$/.test(di)){ state.registroIso=di; state.registroMes=false; state.quickEditId=null; state.quickDraft=null; render(); } }
     else if(act==="registroToday"){ state.registroIso=isoDate(new Date()); state.quickEditId=null; render(); }
     else if(act==="comprasTab"){ state.comprasTab=btn.getAttribute("data-tab"); render(); }
     else if(act==="addOC"){ var cd1=state.compraDraft||{}; if(!cd1.ocCantidad||Number(cd1.ocCantidad)<=0){ alert("Ingresa la cantidad total de la OC."); return; } addOC(cd1.ocProducto,cd1.ocFecha||isoDate(new Date()),cd1.ocCantidad,cd1.ocNotas); state.compraDraft.ocCantidad=""; state.compraDraft.ocNotas=""; render(); }
