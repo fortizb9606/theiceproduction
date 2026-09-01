@@ -20,7 +20,9 @@
   var API_KEY = "AIzaSyAZzo8LyKr-Htf49uunKY6GFn130Hefwhk";
   var PROJECT = "theiceproduction";
   var ESPERA_MS = 3500;
-  var POLL_MS = 15000;
+  var POLL_MS = 90000;  // antes 15s — leía las 9 colecciones enteras cada 15s
+                        // y eso agota la cuota gratuita diaria de Firestore en
+                        // pocas horas si el iPad queda abierto (01-sep-2026).
 
   var COLS = ["shifts", "inventory", "salidas", "metas",
               "ocBolsas", "retirosBolsas", "comprasMalla",
