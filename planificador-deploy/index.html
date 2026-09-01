@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-31-respaldo-ipad-antiguo -->
+<!-- BUILD-MARK: 2026-09-01-indicador-conexion -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-08-31-respaldo-ipad-antiguo";
+  var APP_BUILD="2026-09-01-indicador-conexion";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -751,6 +751,17 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         '</div>'+
         '<div style="padding:16px 18px 0">'+cuerpo+'</div>'+
       '</div></div>';
+  }
+  /* Muestra en pantalla cómo está conectada la app. Sirve para saber, sin
+     abrir consolas, si un dispositivo está guardando de verdad y por qué vía. */
+  function estadoNubeChip(){
+    var c=window.TICloud;
+    var modo=c&&c.ready?(c.modo==="rest"?"compatible":"normal"):null;
+    if(modo){
+      var col=modo==="compatible"?"var(--ti-warn,#B26B00)":"var(--ti-ok,#12A150)";
+      return '<span style="margin-left:8px;font:700 10px \'Space Grotesk\';color:'+col+'">● guardando ('+modo+')</span>';
+    }
+    return '<span style="margin-left:8px;font:700 10px \'Space Grotesk\';color:var(--ti-danger,#e5484d)">● sin guardar</span>';
   }
   function daySummaryHtml(){
     if(!state.daySummaryIso) return "";
@@ -2453,7 +2464,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         (state.nubeMsg?('<div style="margin-top:5px;font:500 11px \'IBM Plex Mono\';color:var(--ti-muted,#647787)">'+esc(state.nubeMsg)+'</div>'):'')+
         '</div></div></div>';
     }
-    var topbar='<div class="ti-topbar" data-noprint><div style="min-width:0"><div class="ti-crumb">'+meta[0]+'</div><div class="ti-title">'+meta[1]+'</div><div class="ti-sub">'+subtitle+'<span style="opacity:.5"> · v'+APP_BUILD+'</span></div></div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end"><div class="ti-themepicker" style="display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)">'+themeButtonsHtml+'</div>'+calToggle+(showWeek?weekNav:"")+rightAction+'</div></div>';
+    var topbar='<div class="ti-topbar" data-noprint><div style="min-width:0"><div class="ti-crumb">'+meta[0]+'</div><div class="ti-title">'+meta[1]+'</div><div class="ti-sub">'+subtitle+'<span style="opacity:.5"> · v'+APP_BUILD+'</span>'+estadoNubeChip()+'</div></div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end"><div class="ti-themepicker" style="display:flex;align-items:center;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA)">'+themeButtonsHtml+'</div>'+calToggle+(showWeek?weekNav:"")+rightAction+'</div></div>';
 
     /* ---------- chooser popover ---------- */
     var chooserHtml="";
@@ -2764,6 +2775,6 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 <script type="module" src="firebase-sync.js"></script>
 <!-- Respaldo para iPads antiguos: script clásico (sin módulos ES) que se activa
      solo si la vía moderna no logró conectar. Ver firebase-rest-fallback.js -->
-<script src="firebase-rest-fallback.js"></script>
+<script src="firebase-rest-fallback.js?v=2"></script>
 </body>
 </html>
