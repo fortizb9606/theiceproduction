@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-08-31-mallas-registradas-mandan -->
+<!-- BUILD-MARK: 2026-08-31-respaldo-ipad-antiguo -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-08-31-mallas-registradas-mandan";
+  var APP_BUILD="2026-08-31-respaldo-ipad-antiguo";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -2726,7 +2726,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       var ok=!!(window.TICloud&&window.TICloud.ready);
       var err=window.TICloudError||null;
       if(ok){ if(state.nubeCaida){ state.nubeCaida=false; state.nubeMsg=null; render(); } clearInterval(chequeo); return; }
-      if(err||intentos>=7){
+      if(err||intentos>=12){   // 12s: le da tiempo al respaldo de dispositivos antiguos
         if(!state.nubeCaida){ state.nubeCaida=true; state.nubeMsg=err||"No se pudo conectar con Firebase"; render(); }
         if(err) clearInterval(chequeo);
       }
@@ -2762,5 +2762,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 </script>
 <!-- Sincronización en la nube (Firestore + Google login). Sin config, la app queda en modo local. -->
 <script type="module" src="firebase-sync.js"></script>
+<!-- Respaldo para iPads antiguos: script clásico (sin módulos ES) que se activa
+     solo si la vía moderna no logró conectar. Ver firebase-rest-fallback.js -->
+<script src="firebase-rest-fallback.js"></script>
 </body>
 </html>
