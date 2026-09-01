@@ -19,7 +19,7 @@
 (function () {
   var API_KEY = "AIzaSyAZzo8LyKr-Htf49uunKY6GFn130Hefwhk";
   var PROJECT = "theiceproduction";
-  var ESPERA_MS = 6000;
+  var ESPERA_MS = 3500;
   var POLL_MS = 15000;
 
   var COLS = ["shifts", "inventory", "salidas", "metas",
@@ -180,6 +180,7 @@
         token = d.idToken;
         montarTICloud();
         traerTodo();
+        try { if (window.tiApplyRemote) window.tiApplyRemote("gen", null); } catch (e) {}
         setInterval(traerTodo, POLL_MS);
         // el token dura 1 hora: renovarlo antes de que expire
         setInterval(function () {
@@ -191,6 +192,8 @@
       },
       function (err) {
         try { window.TICloudError = "Modo compatible: " + err; } catch (e) {}
+        activo = false;                       // permite reintentar
+        setTimeout(arrancar, 8000);           // por si la red del iPad tardó
       });
   }
 
