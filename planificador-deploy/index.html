@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-02-bono-en-total-planilla -->
+<!-- BUILD-MARK: 2026-09-02-groupB-limpio-al-guardar -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-02-bono-en-total-planilla";
+  var APP_BUILD="2026-09-02-groupB-limpio-al-guardar";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -666,7 +666,16 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   }
   /* ---- puente de sincronización en la nube (Firestore · opcional, ver firebase-sync.js) ---- */
   function cloudOn(){ return !!(window.TICloud&&window.TICloud.ready); }
-  function cloudSet(kind,obj){ if(cloudOn()){ try{ window.TICloud.set(kind,obj); }catch(e){} } }
+  function cloudSet(kind,obj){
+    if(!cloudOn()) return;
+    // Blindaje (02-sep-2026): groupB quedó obsoleto y hay una regla en Firestore
+    // que rechaza cualquier escritura donde venga con datos. Si el navegador
+    // todavía tiene en memoria un turno viejo con residuo en groupB, cada guardado
+    // fallaría completo — así que se limpia SIEMPRE antes de enviar, pase lo que
+    // pase con lo que haya guardado localmente.
+    if(kind==="shifts"&&obj&&typeof obj==="object"){ obj.groupB=[]; }
+    try{ window.TICloud.set(kind,obj); }catch(e){}
+  }
   function cloudDel(kind,id){ if(cloudOn()){ try{ window.TICloud.del(kind,id); }catch(e){} } }
   function allBlank(arr){ return !(arr||[]).some(function(x){ return (x||"").trim(); }); }
   function applyDefaultsToBlanks(){
@@ -981,7 +990,11 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       costPerPerson:String(s.costPerPerson==null?COST_PER_PERSON:s.costPerPerson),
       wasteTarget:String(s.wasteTarget==null?"":s.wasteTarget),prodType:s.prodType||"normal",maquina:s.maquina||"si",
       people:(s.people&&s.people.length?s.people.slice():["","",""]),
-      groupA:(function(){ var all=rosterNames((s.groupA||[]).concat(s.groupB||[])); return all.length?all:["","","",""]; })(),groupB:[],groupPT:(s.groupPT&&s.groupPT.length?s.groupPT.slice():[""]),
+      // Ya NO se fusiona groupB dentro de groupA (02-sep-2026): groupB está vacío en
+      // toda la base y protegido por regla; si un navegador todavía tiene residuo
+      // viejo en memoria, fusionarlo metía nombres obsoletos ("Wilfredo" corto)
+      // como personas nuevas dentro de Grupo A. Solo se toma groupA.
+      groupA:(function(){ var all=rosterNames(s.groupA||[]); return all.length?all:["","","",""]; })(),groupB:[],groupPT:(s.groupPT&&s.groupPT.length?s.groupPT.slice():[""]),
       notes:s.notes||"",
       closed:!!s.closed,
       attendance:(function(){ var out={}; if(s.attendance){ for(var k in s.attendance){ if(s.attendance.hasOwnProperty(k)) out[k]=s.attendance[k]; } } return out; })(),
@@ -2941,6 +2954,6 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 <script type="module" src="firebase-sync.js"></script>
 <!-- Respaldo para iPads antiguos: script clásico (sin módulos ES) que se activa
      solo si la vía moderna no logró conectar. Ver firebase-rest-fallback.js -->
-<script src="firebase-rest-fallback.js?v=5"></script>
+<script src="firebase-rest-fallback.js?v=6"></script>
 </body>
 </html>
