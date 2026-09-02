@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-02-fix-roster-y-blindaje-pruebas -->
+<!-- BUILD-MARK: 2026-09-02-fix-duplicados-drawer -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-02-fix-roster-y-blindaje-pruebas";
+  var APP_BUILD="2026-09-02-fix-duplicados-drawer";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -373,7 +373,15 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function products(s){ return (s.products&&s.products.length)?s.products:[]; }
   function metaKg(s){ return products(s).reduce(function(a,p){ return a+Number(p.kg||0); },0); }
   function metaMesh(s){ return products(s).reduce(function(a,p){ return a+Number(p.mesh||0); },0); }
-  function allPeople(s){ return s.type==="am"?((s.groupA||[]).concat(s.groupB||[]).concat(s.groupPT||[])):(s.people||[]); }
+  function allPeople(s){
+    // Defensa contra datos viejos: Grupo B se juntó con Full time hace rato,
+    // pero si algún turno quedó con restos de groupB (viene de antes del
+    // cambio), esto evita que un nombre salga duplicado en la tarjeta.
+    var crudo=s.type==="am"?((s.groupA||[]).concat(s.groupB||[]).concat(s.groupPT||[])):(s.people||[]);
+    var vistos={}, out=[];
+    crudo.forEach(function(n){ var k=(n||"").trim(); if(!k){ out.push(n); return; } if(vistos[k]) return; vistos[k]=1; out.push(n); });
+    return out;
+  }
   function pcount(s){ return allPeople(s).filter(function(n){ return (n||"").trim(); }).length; }        // personas realmente asignadas (ignora cupos en blanco)
   function gcount(arr){ return (arr||[]).filter(function(n){ return (n||"").trim(); }).length; }
   /* Tipos de persona del equipo. "part" se mantiene con ese valor para no romper
@@ -944,7 +952,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       costPerPerson:String(s.costPerPerson==null?COST_PER_PERSON:s.costPerPerson),
       wasteTarget:String(s.wasteTarget==null?"":s.wasteTarget),prodType:s.prodType||"normal",maquina:s.maquina||"si",
       people:(s.people&&s.people.length?s.people.slice():["","",""]),
-      groupA:(function(){ var all=[].concat(s.groupA||[],s.groupB||[]).filter(function(n){return (n||"").trim();}); return all.length?all:["","","",""]; })(),groupB:[],groupPT:(s.groupPT&&s.groupPT.length?s.groupPT.slice():[""]),
+      groupA:(function(){ var all=rosterNames((s.groupA||[]).concat(s.groupB||[])); return all.length?all:["","","",""]; })(),groupB:[],groupPT:(s.groupPT&&s.groupPT.length?s.groupPT.slice():[""]),
       notes:s.notes||"",
       closed:!!s.closed,
       attendance:(function(){ var out={}; if(s.attendance){ for(var k in s.attendance){ if(s.attendance.hasOwnProperty(k)) out[k]=s.attendance[k]; } } return out; })(),
