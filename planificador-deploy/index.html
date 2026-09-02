@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-02-fix-conteo-tarjeta -->
+<!-- BUILD-MARK: 2026-09-02-planilla-por-turno-bono-por-turno -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-02-fix-conteo-tarjeta";
+  var APP_BUILD="2026-09-02-planilla-por-turno-bono-por-turno";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -469,17 +469,18 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       nivel:nivel, ahorroDisponible:r.ahorro, umbrales:th,
     };
   }
-  /* Bono del día: junta TODOS los turnos cerrados de esa fecha (personas pagadas +
-     mallas reales), corre la fórmula una vez, y reparte el líquido en partes iguales
-     entre quienes trabajaron ese día (presente o con licencia — igual que la MO). */
-  function bonoDayCompute(iso){
-    var dayShifts=state.shifts.filter(function(s){ return s.date===iso&&s.closed; });
-    if(!dayShifts.length) return null;
-    var personas=0,mallas=0;
-    dayShifts.forEach(function(s){ personas+=paidHeadcount(s); mallas+=Number(s.meshReal||0); });
+  /* Bono por TURNO (02-sep-2026, a pedido de Felipe) — antes se juntaban todos los
+     turnos cerrados del día en un solo pozo; ahora cada turno (AM, Extensión, Noche)
+     corre su propia fórmula por separado, con su propia gente y sus propias mallas.
+     Si alguien trabajó más de un turno el mismo día, se le suman los bonos de cada
+     uno por separado, no se mezclan en un pozo común. */
+  function bonoTurnoCompute(s){
+    if(!s||!s.closed) return null;
+    var personas=paidHeadcount(s), mallas=Number(s.meshReal||0);
     if(!(personas>0)) return null;
     return calcularBonoObj(personas,mallas);
   }
+  function bonoTurnosDelDia(iso){ return state.shifts.filter(function(s){ return s.date===iso&&s.closed; }); }
   function prevDayInventory(iso){
     var before=state.shifts.filter(function(s){ return s.closed && s.date<iso && s.invFinal && s.invFinal.length; });
     if(!before.length) return null;
@@ -1781,12 +1782,27 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       // placeholder que siempre da null (se ve "—") — conectar acá la fórmula real
       // apenas esté definida (pozo del día ÷ presentes de ese turno, u lo que sea).
       var bonoDayCache={};
+      // Detalle por turno del bono de una persona en un día: [{turno,liquido,nivel,pozo,congelado,retomaEn}, ...]
+      function bonoDiaDetalle(iso,name){
+        var out=[];
+        bonoTurnosDelDia(iso).forEach(function(s){
+          var enEsteTurno=allPeople(s).map(function(n){return (n||"").trim();}).indexOf(name)>=0;
+          if(!enEsteTurno) return;
+          var stTurno=(s.attendance&&s.attendance[name])||"presente";
+          if(stTurno==="ausente") return;
+          var b=bonoTurnoCompute(s);
+          if(b&&b.liquidoPersona>0) out.push({turno:s.title||"Turno",liquido:b.liquidoPersona,nivel:b.nivel,pozo:b.pozoDiaBruto,congelado:b.pozoCongelado,retomaEn:b.retomaEn});
+        });
+        return out;
+      }
       function bonoDiaFor(iso,name){
         var st=personStatusOn(iso,name);
         if(st!=="presente"&&st!=="licencia") return null;
-        if(!bonoDayCache.hasOwnProperty(iso)) bonoDayCache[iso]=bonoDayCompute(iso);
-        var b=bonoDayCache[iso];
-        return (b&&b.liquidoPersona>0)?b.liquidoPersona:null;
+        var key=iso+"|"+name;
+        if(!bonoDayCache.hasOwnProperty(key)) bonoDayCache[key]=bonoDiaDetalle(iso,name);
+        var det=bonoDayCache[key];
+        if(!det.length) return null;
+        return det.reduce(function(a,d){ return a+d.liquido; },0);
       }
       function pagoDiarioFor(iso,name){
         var st=personStatusOn(iso,name);
@@ -1810,11 +1826,11 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
             +isoList.map(function(iso){
               var key=extraHoursKey(name,iso);
               var auto=bonoDiaFor(iso,name);
-              var bd=bonoDayCache[iso];
+              var det=bonoDiaDetalle(iso,name);
               var manual=(config.bonoManualByPersonDay&&config.bonoManualByPersonDay[key]);
               var esManual=manual!=null&&manual!==undefined;
               var valorMostrado=esManual?manual:(auto||"");
-              var tip=bd?('Nivel '+bd.nivel+' · pozo del equipo $'+fmt(bd.pozoDiaBruto)+(bd.pozoCongelado?(' (congelado, retoma en '+bd.retomaEn+' mallas)'):'')):'';
+              var tip=det.length?det.map(function(d){ return d.turno+': nivel '+d.nivel+' · $'+fmt(d.liquido)+(d.congelado?(' (pozo congelado, retoma en '+d.retomaEn+' mallas)'):''); }).join(" | "):'';
               tip+=esManual?' · monto puesto a mano':(auto?' · calculado automático':'');
               return '<td style="padding:4px 5px" title="'+esc(tip)+'"><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(valorMostrado)+'" placeholder="'+(auto?("$"+fmt(auto)):"$0")+'" data-bono-key="'+esc(key)+'" style="width:100%;text-align:center;padding:5px 3px;font-size:11.5px;color:'+(esManual?"var(--ti-accent,#0E8FD6)":"var(--ti-warn,#B26B00)")+';font-weight:600"></td>';
             }).join("")
@@ -1840,37 +1856,58 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       // PRESENTE (licencia y ausente no se pagan), valor líquido por turno
       // (lo escribe Felipe, queda guardado en config.payRates), bruto
       // calculado solo (líquido × 1,24), y el total a pagar de la fila.
-      var payByPerson={};
-      vis.forEach(function(s){
-        var names=[].concat(s.groupA||[],s.groupB||[],s.groupPT||[],s.people||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
-        var att=s.attendance||{};
-        var confirmable=s.closed||s.date===todayIso; // sin cerrar y sin ser hoy = todavía no cuenta, queda pendiente
-        names.forEach(function(n){
-          payByPerson[n]=payByPerson[n]||{presente:0,licencia:0,ausente:0,pendiente:0};
-          var st=att[n]||(confirmable?"presente":"pendiente");
-          payByPerson[n][st]=(payByPerson[n][st]||0)+1;
-        });
-      });
-      var payNames=Object.keys(payByPerson).filter(function(n){ return esPartTime(n); }).sort();
+      // Planilla de pagos: ahora responde directo a Configuración → "Quién va en cada
+      // turno" (config.defaultByShift), no a lo que haya quedado guardado dentro de los
+      // turnos — así no depende de que la sincronización haya alcanzado a correr, y
+      // separada en 3 secciones (AM / Extensión / PM), cada una con su propia gente y
+      // su propio conteo de turnos, en vez de mezclar todo en una sola tabla (02-sep-2026).
+      function tipoDeTurnoShift(s){
+        var t=(s.title||"");
+        var esNoche=s.type==="night"||/noche/i.test(t);
+        if(esNoche) return "pm";
+        var esExt=s.type==="custom"||/extensi/i.test(t);
+        if(esExt) return "ext";
+        return "am";
+      }
+      var PLANILLA_TURNOS=[{k:"am",n:"Turno AM"},{k:"ext",n:"Extensión"},{k:"pm",n:"Turno PM / Noche"}];
       var payGranTotal=0;
-      var payRows=payNames.map(function(name){
-        var c=payByPerson[name]; var turnos=c.presente;
-        var rate=(config.payRates&&config.payRates[name])||"";
-        var liquidoN=rate?Number(rate):0;
-        var brutoN=Math.round(liquidoN*1.24);
-        var extraRate=(config.payExtra&&config.payExtra[name])||"";
-        var extraN=extraRate?Number(extraRate):0;
-        var totalN=liquidoN*turnos+extraN;
-        payGranTotal+=totalN;
-        return '<tr><td style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(name)+'</td>'
-          +'<td class="ti-num">'+turnos+(c.licencia?(' <span style="color:var(--ti-muted,#647787);font-weight:500">('+c.licencia+' lic.)</span>'):'')+(c.pendiente?(' <span style="color:var(--ti-warn,#B26B00);font-weight:500">('+c.pendiente+' pend.)</span>'):'')+'</td>'
-          +'<td><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(rate)+'" placeholder="$ líquido/turno" data-payr-name="'+esc(name)+'" data-payr-turnos="'+turnos+'" style="text-align:right;width:130px"></td>'
-          +'<td class="ti-num" data-payrbrutoof="'+esc(name)+'">$'+fmt(brutoN)+'</td>'
-          +'<td><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(extraRate)+'" placeholder="$ horas extra" data-payx-name="'+esc(name)+'" style="text-align:right;width:130px"></td>'
-          +'<td class="ti-num" style="font-weight:700;color:var(--ti-text,#14202B)" data-payrtotalof="'+esc(name)+'">$'+fmt(totalN)+'</td></tr>';
-      }).join("")||'<tr><td colspan="6" style="text-align:center;color:var(--ti-muted,#647787);padding:22px">Sin operarios part-time en turnos de esta semana. Marca a alguien como "Part time" en Configuración → Personas activas para que aparezca acá.</td></tr>';
-      var payTotalRow=payNames.length?('<tr style="background:var(--ti-surface2,#F3F6F9)"><td style="font-weight:700">Total a pagar</td><td></td><td></td><td></td><td></td><td class="ti-num" style="font-weight:700;font-size:14px">$'+fmt(payGranTotal)+'</td></tr>'):'';
-      var planillaPagos='<section style="'+CARD+';overflow:hidden;margin-top:18px">'+sectionHead("Planilla de pagos",payNames.length+" operarios part-time · turnos presente de la semana")+'<p style="margin:0;padding:0 18px 12px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Solo salen acá los marcados "Part time" en Configuración — los full-time se pagan aparte, con la planilla de fin de mes. Escribe el valor líquido por turno y, si corresponde, un monto de horas extra a mano — el bruto (líquido × 1,24) es solo referencia — el Total a pagar se calcula sobre el líquido (líquido × turnos + horas extra) y se guarda automáticamente al salir del campo.</p><div style="overflow:auto"><table class="ti-tbl"><thead><tr><th>Operario</th><th style="text-align:right">Turnos presente</th><th>Valor líquido/turno</th><th style="text-align:right">Bruto/turno</th><th>Horas extra ($)</th><th style="text-align:right">Total a pagar</th></tr></thead><tbody>'+payRows+payTotalRow+'</tbody></table></div></section>';
+      var planillaSecciones=PLANILLA_TURNOS.map(function(tb){
+        var nombres=((config.defaultByShift&&config.defaultByShift[tb.k])||[]).map(function(n){return (n||"").trim();}).filter(function(n){return n&&esPartTime(n);});
+        var shiftsDeEsteTipo=vis.filter(function(s){ return tipoDeTurnoShift(s)===tb.k; });
+        var porPersona={};
+        shiftsDeEsteTipo.forEach(function(s){
+          var att=s.attendance||{};
+          var confirmable=s.closed||s.date===todayIso;
+          rosterNames((s.groupA||[]).concat(s.groupB||[],s.groupPT||[],s.people||[])).forEach(function(n){
+            if(nombres.indexOf(n)<0) return; // solo cuenta si sigue asignado a este turno en Configuración
+            porPersona[n]=porPersona[n]||{presente:0,licencia:0,ausente:0,pendiente:0};
+            var st=att[n]||(confirmable?"presente":"pendiente");
+            porPersona[n][st]=(porPersona[n][st]||0)+1;
+          });
+        });
+        var filas=nombres.map(function(name){
+          var c=porPersona[name]||{presente:0,licencia:0,ausente:0,pendiente:0};
+          var turnos=c.presente;
+          var rate=(config.payRates&&config.payRates[name])||"";
+          var liquidoN=rate?Number(rate):0;
+          var brutoN=Math.round(liquidoN*1.24);
+          var extraRate=(config.payExtra&&config.payExtra[name])||"";
+          var extraN=extraRate?Number(extraRate):0;
+          var totalN=liquidoN*turnos+extraN;
+          payGranTotal+=totalN;
+          return '<tr><td style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(name)+'</td>'
+            +'<td class="ti-num">'+turnos+(c.licencia?(' <span style="color:var(--ti-muted,#647787);font-weight:500">('+c.licencia+' lic.)</span>'):'')+(c.pendiente?(' <span style="color:var(--ti-warn,#B26B00);font-weight:500">('+c.pendiente+' pend.)</span>'):'')+'</td>'
+            +'<td><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(rate)+'" placeholder="$ líquido/turno" data-payr-name="'+esc(name)+'" data-payr-turnos="'+turnos+'" style="text-align:right;width:130px"></td>'
+            +'<td class="ti-num" data-payrbrutoof="'+esc(name)+'">$'+fmt(brutoN)+'</td>'
+            +'<td><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(extraRate)+'" placeholder="$ horas extra" data-payx-name="'+esc(name)+'" style="text-align:right;width:130px"></td>'
+            +'<td class="ti-num" style="font-weight:700;color:var(--ti-text,#14202B)" data-payrtotalof="'+esc(name)+'">$'+fmt(totalN)+'</td></tr>';
+        }).join("")||'<tr><td colspan="6" style="text-align:center;color:var(--ti-muted,#647787);padding:18px">Nadie part-time asignado a '+tb.n+' en Configuración → Quién va en cada turno.</td></tr>';
+        var subtotal=nombres.reduce(function(a,name){ var c=porPersona[name]; var turnos=c?c.presente:0; var rate=(config.payRates&&config.payRates[name])||0; var extraRate=(config.payExtra&&config.payExtra[name])||0; return a+Number(rate)*turnos+Number(extraRate); },0);
+        var totalFila=nombres.length?('<tr style="background:var(--ti-surface2,#F3F6F9)"><td style="font-weight:700">Subtotal '+tb.n+'</td><td></td><td></td><td></td><td></td><td class="ti-num" style="font-weight:700">$'+fmt(subtotal)+'</td></tr>'):'';
+        return '<div style="margin-bottom:18px"><div style="font:700 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B);padding:12px 18px 6px">'+tb.n+' · '+nombres.length+' part-time</div><div style="overflow:auto"><table class="ti-tbl"><thead><tr><th>Operario</th><th style="text-align:right">Turnos presente</th><th>Valor líquido/turno</th><th style="text-align:right">Bruto/turno</th><th>Horas extra ($)</th><th style="text-align:right">Total a pagar</th></tr></thead><tbody>'+filas+totalFila+'</tbody></table></div></div>';
+      }).join("");
+      var payGranTotalRow='<div style="padding:12px 18px;border-top:1px solid var(--ti-line,#DCE3EA);display:flex;justify-content:flex-end;gap:10px;align-items:baseline"><span style="font:700 12.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">Total a pagar (los 3 turnos)</span><span style="font:700 17px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">$'+fmt(payGranTotal)+'</span></div>';
+      var planillaPagos='<section style="'+CARD+';overflow:hidden;margin-top:18px">'+sectionHead("Planilla de pagos","Se arma directo desde Configuración → Quién va en cada turno")+'<p style="margin:0;padding:0 18px 8px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Solo salen acá los marcados "Part time" — los full-time se pagan aparte, con la planilla de fin de mes. Escribe el valor líquido por turno y, si corresponde, horas extra a mano — el bruto es solo referencia — se guarda solo al salir del campo.</p>'+planillaSecciones+payGranTotalRow+'</section>';
       inasistTable=inasistTable+planillaPagos;
       var horarioSection='<section style="display:flex;gap:16px;flex-wrap:wrap;align-items:stretch">'+
           '<div style="flex:1;min-width:520px;'+CARD+';overflow:hidden">'+
