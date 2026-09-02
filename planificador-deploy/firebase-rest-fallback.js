@@ -166,6 +166,8 @@
             xhr("PATCH", urlDoc("meta", "generatedWeeks"), { fields: camposHaciaFs({ weeks: obj }) });
             return;
           }
+          // groupB obsoleto: la regla de Firestore rechaza escrituras con datos ahí.
+          if (kind === "shifts" && obj && typeof obj === "object") obj.groupB = [];
           xhr("PATCH", urlDoc(kind, String(obj.id)), { fields: camposHaciaFs(obj) });
         } catch (e) {}
       },
