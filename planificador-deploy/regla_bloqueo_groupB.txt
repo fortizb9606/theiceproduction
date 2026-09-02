@@ -1,0 +1,19 @@
+Agrega esta condición a la regla de "shifts" en Firestore → Reglas.
+
+Si tu regla actual para shifts es algo como:
+  match /shifts/{id} {
+    allow read, write: if esBotAnonimo() || esEquipoPermitido();
+  }
+
+Cámbiala a:
+  match /shifts/{id} {
+    allow read: if esBotAnonimo() || esEquipoPermitido();
+    allow create, update: if (esBotAnonimo() || esEquipoPermitido())
+      && (!('groupB' in request.resource.data) || request.resource.data.groupB.size() == 0);
+    allow delete: if esBotAnonimo() || esEquipoPermitido();
+  }
+
+Esto deja todo exactamente igual (mismos permisos de lectura/escritura),
+salvo por una cosa: cualquier intento de escribir en "groupB" con algo que
+no sea un arreglo vacío se rechaza directo en el servidor, sin importar
+qué dispositivo lo mande ni si Grupo A/B ya no se usa en el código.
