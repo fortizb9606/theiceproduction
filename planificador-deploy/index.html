@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-02-fix-duplicados-drawer -->
+<!-- BUILD-MARK: 2026-09-02-fix-conteo-tarjeta -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-02-fix-duplicados-drawer";
+  var APP_BUILD="2026-09-02-fix-conteo-tarjeta";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -1639,8 +1639,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
               '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px"><span style="font:600 10.5px \'IBM Plex Mono\';color:'+tx+';opacity:.72">'+esc(timeLabel(first))+'</span><span style="font:600 9.5px \'IBM Plex Mono\';color:'+tx+';opacity:.6">'+totPeople+' pers.</span></div>'+
               '<div style="margin-top:5px;display:flex;flex-direction:column;gap:2px">'+rows+'</div>'+kgline+'</div>';
           } else if(first.type==="am"){
-            var s=first; var closed=!!s.closed; var na=gcount(s.groupA), nb=gcount(s.groupB), npt=gcount(s.groupPT);
-            var nFull=na+nb, totBar=(nFull+npt)||1, fullPct=Math.round(nFull/totBar*100);
+            var s=first; var closed=!!s.closed;
+            var nFull=rosterNames((s.groupA||[]).concat(s.groupB||[])).length, npt=gcount(s.groupPT);
+            var totBar=(nFull+npt)||1, fullPct=Math.round(nFull/totBar*100);
             var pinfo=presentInfo(s); var tot=pinfo.total;
             var amStyle=base.replace("border-left:3px solid "+c.bar+";","")+"padding-left:12px;cursor:grab;";
             var grad='<div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:'+(npt>0?('linear-gradient(to bottom,'+th.types.b.bar+' 0 '+fullPct+'%,'+th.types.a.bar+' '+fullPct+'% 100%)'):th.types.b.bar)+'"></div>';
