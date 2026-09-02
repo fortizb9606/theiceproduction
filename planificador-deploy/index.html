@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-02-horario-separado-por-turno -->
+<!-- BUILD-MARK: 2026-09-02-bono-gatillo-y-metas-v2 -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-02-horario-separado-por-turno";
+  var APP_BUILD="2026-09-02-bono-gatillo-y-metas-v2";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -439,30 +439,58 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     factorLiquido:0.76,
     personasReferencia:6,
     umbralesBase:[190,220,260,300,360],
-    repartoEquipoPct:[100,80,70,60],
+    repartoEquipoPct:[80,75,60,60],
+    // Metas oficiales (actualizadas 02-sep-2026, segunda corrección de Felipe):
+    // base de 3 personas bajó de 110 a 100, N1 de 127 a 110.
+    umbralesEspeciales:{3:[100,110,151,174,208],4:[133,147,201,232,279],5:[167,183,250,289,347],6:[190,220,260,300,360]},
+    // Gatillo explícito: el bono NO empieza a pagar solo porque el ahorro ya sea
+    // positivo — hay que llegar a este número de mallas. Para 3/4/5 es un valor
+    // fijo (puede ser distinto de la "base" de la tabla de metas — son dos cosas
+    // separadas a propósito, deja un colchón antes de pagar). Para cualquier otro
+    // tamaño de equipo (6 incluido) se calcula solo, del punto donde el costo baja
+    // de $70/kg.
+    gatilloFijo:{3:110,4:147,5:183},
     maxDiasBajoBaseMes:3,
   };
-  function bonoUmbrales(personas){ var f=personas/BONO_CONFIG.personasReferencia; return BONO_CONFIG.umbralesBase.map(function(x){ return Math.round(x*f); }); }
-  function bonoInicio(personas){ var labor=personas*BONO_CONFIG.costoBrutoPersonaTurno; return Math.floor(labor/(BONO_CONFIG.costoObjetivoKg*BONO_CONFIG.kgPorMalla))+1; }
+  function bonoUmbrales(personas){
+    personas=Number(personas);
+    if(BONO_CONFIG.umbralesEspeciales[personas]) return BONO_CONFIG.umbralesEspeciales[personas].slice();
+    var f=personas/BONO_CONFIG.personasReferencia;
+    return BONO_CONFIG.umbralesBase.map(function(x){ return Math.round(x*f); });
+  }
+  function bonoInicio(personas){
+    personas=Number(personas);
+    if(BONO_CONFIG.gatilloFijo[personas]) return BONO_CONFIG.gatilloFijo[personas];
+    var labor=personas*BONO_CONFIG.costoBrutoPersonaTurno;
+    return Math.floor(labor/(BONO_CONFIG.costoObjetivoKg*BONO_CONFIG.kgPorMalla))+1;
+  }
   function bonoPozoCrudo(personas,mallas){
     var th=bonoUmbrales(personas);
     var labor=personas*BONO_CONFIG.costoBrutoPersonaTurno;
     var kg=mallas*BONO_CONFIG.kgPorMalla;
     var ahorro=Math.max(0,BONO_CONFIG.costoObjetivoKg*kg-labor);
+    var gatillo=bonoInicio(personas);
+    // No paga nada antes del gatillo, aunque el ahorro matemático ya sea positivo.
+    if(ahorro<=0||mallas<gatillo) return {pozo:0,ahorro:ahorro,nivelIndex:-1,pctEquipo:0};
     var li=-1; th.forEach(function(t,i){ if(mallas>=t) li=i; });
-    var pct=ahorro>0?(li>=2?BONO_CONFIG.repartoEquipoPct[Math.min(li-1,3)]:BONO_CONFIG.repartoEquipoPct[0])/100:0;
+    var pct=(li>=2?BONO_CONFIG.repartoEquipoPct[Math.min(li-1,3)]:BONO_CONFIG.repartoEquipoPct[0])/100;
     return {pozo:ahorro*pct,ahorro:ahorro,nivelIndex:li,pctEquipo:pct};
   }
   function calcularBonoObj(personas,mallas){
     if(!(personas>0)) return {pozoDiaBruto:0,pozoCongelado:false,retomaEn:null,brutoPersona:0,liquidoPersona:0,nivel:"Sin bono",ahorroDisponible:0};
     var th=bonoUmbrales(personas);
+    var gatillo=bonoInicio(personas);
     var r=bonoPozoCrudo(personas,mallas);
     var pozo=r.pozo;
     [2,3,4].forEach(function(i){ if(mallas>=th[i]) pozo=Math.max(pozo,bonoPozoCrudo(personas,th[i]-1).pozo); });
     var congelado=pozo>r.pozo+0.5;
     var retomaEn=null;
     if(congelado){ for(var b=Math.ceil(mallas)+1;b<=Math.ceil(mallas)+250;b++){ if(bonoPozoCrudo(personas,b).pozo>pozo+0.5){ retomaEn=b; break; } } }
-    var nivel=r.ahorro<=0?(mallas>=th[0]?"Base":"Sin bono"):(r.nivelIndex>=2?"N"+r.nivelIndex:"N1");
+    // Arreglado 02-sep-2026: antes esta etiqueta miraba solo r.ahorro>0, y podía
+    // decir "N1" con $0 de bono real entre la "base" y el gatillo (mallas donde el
+    // ahorro matemático ya es positivo pero el gatillo todavía no se alcanza).
+    // Ahora exige también haber llegado al gatillo, igual que el pago real.
+    var nivel=(r.ahorro<=0||mallas<gatillo)?(mallas>=th[0]?"Base":"Sin bono"):(r.nivelIndex>=2?"N"+r.nivelIndex:"N1");
     return {
       pozoDiaBruto:Math.round(pozo), pozoCongelado:congelado, retomaEn:retomaEn,
       brutoPersona:Math.round(pozo/personas), liquidoPersona:Math.round(pozo/personas*BONO_CONFIG.factorLiquido),
