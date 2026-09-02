@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-02-planilla-por-turno-bono-por-turno -->
+<!-- BUILD-MARK: 2026-09-02-horario-separado-por-turno -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-02-planilla-por-turno-bono-por-turno";
+  var APP_BUILD="2026-09-02-horario-separado-por-turno";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -1812,6 +1812,11 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       }
       var rosterFull=roster.filter(function(n){ return !esPartTime(n); });
       var rosterPart=roster.filter(function(n){ return esPartTime(n); });
+      var dbsAtt=config.defaultByShift||{am:[],ext:[],pm:[]};
+      var rosterFullAM=rosterFull.filter(function(n){ return (dbsAtt.am||[]).indexOf(n)>=0; });
+      var rosterFullExt=rosterFull.filter(function(n){ return (dbsAtt.ext||[]).indexOf(n)>=0; });
+      var rosterFullPM=rosterFull.filter(function(n){ return (dbsAtt.pm||[]).indexOf(n)>=0; });
+      var rosterFullSinTurno=rosterFull.filter(function(n){ return rosterFullAM.indexOf(n)<0&&rosterFullExt.indexOf(n)<0&&rosterFullPM.indexOf(n)<0; });
       function attTableSection(titulo,names,esParttime){
         if(!names.length) return "";
         var rowsHtml=names.map(function(name){
@@ -1847,7 +1852,10 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         return '<div style="margin-top:'+(esParttime?"18px":"0")+'"><div style="padding:12px 18px 8px;font:700 12.5px \'Space Grotesk\';letter-spacing:.02em;color:var(--ti-text,#14202B);text-transform:uppercase">'+titulo+'</div><div style="overflow:auto"><table class="ti-tbl"><thead>'+head+'</thead><tbody>'+rowsHtml+'</tbody></table></div></div>';
       }
       var inasistTable='<section style="'+CARD+';overflow:hidden"><div style="padding:15px 18px;border-bottom:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">Inasistencias de la semana</div><p style="margin:5px 0 0;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Si una persona no aparece en ningún turno programado, o queda marcada "Ausente" al cerrar su turno, cuenta como inasistencia. "Licencia" no cuenta como falta (se sigue pagando). Los días sin ningún turno se muestran como descanso. El bono día se calcula solo con la producción real del turno cerrado; el número naranja es el automático, y puedes escribir encima para corregirlo a mano (queda en azul). "Horas adic." es un monto manual por persona y por día.</p></div>'
-        +(rosterFull.length?attTableSection("Full times",rosterFull,false):"")
+        +(rosterFullAM.length?attTableSection("Full time · Turno AM",rosterFullAM,false):"")
+        +(rosterFullExt.length?attTableSection("Full time · Extensión",rosterFullExt,false):"")
+        +(rosterFullPM.length?attTableSection("Full time · PM / Noche",rosterFullPM,false):"")
+        +(rosterFullSinTurno.length?attTableSection("Full time · sin turno asignado",rosterFullSinTurno,false):"")
         +(rosterPart.length?attTableSection("Part times",rosterPart,true):"")
         +(!rosterFull.length&&!rosterPart.length?'<div style="padding:26px 18px;text-align:center;color:var(--ti-muted,#647787);font:500 13px \'Space Grotesk\'">No hay personas activas configuradas.</div>':"")
       +'</section>';
