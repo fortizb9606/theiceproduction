@@ -105,6 +105,9 @@ async function boot() {
           if (kind === "config")      return setDoc(doc(db, "config", "main"), sane(obj));
           if (kind === "gen")         return setDoc(doc(db, "meta", "generatedWeeks"), { weeks: obj });
           if (!COLS[kind]) { console.error("[TISync] set: colección desconocida:", kind); return; }
+          // groupB obsoleto (02-sep-2026): la regla de Firestore rechaza cualquier
+          // escritura donde venga con datos. Se limpia siempre antes de enviar.
+          if (kind === "shifts" && obj && typeof obj === "object") obj.groupB = [];
           return setDoc(doc(db, COLS[kind], String(obj.id)), sane(obj));
         } catch (e) { console.error("[TISync] set", kind, e); }
       },
