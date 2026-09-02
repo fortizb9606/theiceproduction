@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-01-fix-duplicados-y-cuota -->
+<!-- BUILD-MARK: 2026-09-01-costo-real-y-bono-editable -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-01-fix-duplicados-y-cuota";
+  var APP_BUILD="2026-09-01-costo-real-y-bono-editable";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -401,7 +401,23 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     names.forEach(function(nm){ var st=att[nm]||"presente"; if(st==="ausente") return; total++; if(st==="licencia") licencia++; });
     return {total:total,licencia:licencia};
   }
-  function laborCost(s){ return paidHeadcount(s)*Number((config&&config.costPerPerson!=null)?config.costPerPerson:COST_PER_PERSON); }
+  function laborCost(s){
+    // Antes: tarifa plana para todos por igual. Ahora: si un part-time ya
+    // tiene su valor líquido real cargado en la Planilla de pagos, se usa su
+    // bruto real (líquido×1,24) en vez de la tarifa plana genérica — para que
+    // el costo de mano de obra refleje lo que de verdad se les paga, no un
+    // número parejo que no distingue a nadie (01-sep-2026).
+    var flat=Number((config&&config.costPerPerson!=null)?config.costPerPerson:COST_PER_PERSON);
+    var names=allPeople(s).map(function(n){return (n||"").trim();}).filter(Boolean);
+    var att=s.attendance||{};
+    var total=0;
+    names.forEach(function(nm){
+      var st=att[nm]||"presente"; if(st==="ausente") return;
+      var rate=esPartTime(nm)?(config.payRates&&config.payRates[nm]):null;
+      total += (rate&&Number(rate)>0) ? Math.round(Number(rate)*1.24) : flat;
+    });
+    return total;
+  }
 
   /* ── Bono de producción (setting final ago-2026, validado por Felipe) ──
      Puerto directo de bono.js — mismos autotest pasando exacto:
@@ -505,6 +521,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     if(!c.payRates) c.payRates={};
     if(!c.payExtra) c.payExtra={};
     if(!c.extraHoursByPersonDay) c.extraHoursByPersonDay={};
+    if(!c.bonoManualByPersonDay) c.bonoManualByPersonDay={};
     if(!c.rosterType) c.rosterType={};
     if(c.metaMensualTon==null||isNaN(Number(c.metaMensualTon))) c.metaMensualTon=140;
     if(!c.defaultByShift||typeof c.defaultByShift!=="object") c.defaultByShift=null;
@@ -553,7 +570,17 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var v=el?el.value:"";
     var n=(v!==""&&!isNaN(Number(v)))?Number(v):0;
     if(!config.extraHoursByPersonDay) config.extraHoursByPersonDay={};
+    if(!config.bonoManualByPersonDay) config.bonoManualByPersonDay={};
     if(n>0) config.extraHoursByPersonDay[key]=n; else delete config.extraHoursByPersonDay[key];
+    persistCfg(); cloudSet('config',config);
+    render();
+  }
+  function bonoManualCommit(key){
+    var el=root.querySelector('[data-bono-key="'+key.replace(/"/g,'\\"')+'"]');
+    var v=el?el.value:"";
+    var n=(v!==""&&!isNaN(Number(v)))?Number(v):null;
+    if(!config.bonoManualByPersonDay) config.bonoManualByPersonDay={};
+    if(n!=null) config.bonoManualByPersonDay[key]=n; else delete config.bonoManualByPersonDay[key];
     persistCfg(); cloudSet('config',config);
     render();
   }
@@ -1423,7 +1450,19 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function draftMetaMesh(){ return state.draft.products.reduce(function(a,p){ return a+Number(p.mesh||0); },0); }
   function draftPaidHeadcount(){ var d=state.draft; var names=rosterNames(d.type==="am"?d.groupA.concat(d.groupB).concat(d.groupPT||[]):d.people); var n=0; names.forEach(function(nm){ var st=(d.attendance&&d.attendance[nm])||"presente"; if(st!=="ausente") n++; }); return n; }
   function draftPresentInfo(){ var d=state.draft; var names=rosterNames(d.type==="am"?d.groupA.concat(d.groupB).concat(d.groupPT||[]):d.people); var total=0,licencia=0; names.forEach(function(nm){ var st=(d.attendance&&d.attendance[nm])||"presente"; if(st==="ausente") return; total++; if(st==="licencia") licencia++; }); return {total:total,licencia:licencia}; }
-  function draftLabor(){ var pc=draftPaidHeadcount(); return pc*Number((config&&config.costPerPerson!=null)?config.costPerPerson:COST_PER_PERSON); }
+  function draftLabor(){
+    // Mismo criterio que laborCost(): un part-time con líquido real cargado
+    // en la Planilla de pagos cuenta con su bruto real, no la tarifa plana.
+    var d=state.draft; var flat=Number((config&&config.costPerPerson!=null)?config.costPerPerson:COST_PER_PERSON);
+    var names=rosterNames(d.type==="am"?d.groupA.concat(d.groupB).concat(d.groupPT||[]):d.people);
+    var total=0;
+    names.forEach(function(nm){
+      var st=(d.attendance&&d.attendance[nm])||"presente"; if(st==="ausente") return;
+      var rate=esPartTime(nm)?(config.payRates&&config.payRates[nm]):null;
+      total += (rate&&Number(rate)>0) ? Math.round(Number(rate)*1.24) : flat;
+    });
+    return total;
+  }
   function draftCPK(){ var kg=draftMetaKg(); return kg>0?("$"+fmt(Math.round(draftLabor()/kg))):"—"; }
   /* ---- producción real = Inventario final − Inventario inicial + Salidas (cuadre automático) ---- */
   function salidasKgFor(product,date){ return salidas.filter(function(x){ return x.product===product&&x.date===date; }).reduce(function(a,x){ return a+Number(x.kg||0); },0); }
@@ -1759,7 +1798,17 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
             +cells.map(function(c){ return '<td style="padding:5px 6px">'+inasistBadge(c)+'</td>'; }).join("")
             +'<td rowspan="'+rowspan+'" class="ti-num" style="vertical-align:middle;font-weight:700;color:'+(faltas>0?"var(--ti-danger,#e5484d)":"var(--ti-muted,#647787)")+'">'+faltas+'</td></tr>';
           var r2='<tr style="border-top:1px dashed var(--ti-line2,#E8EDF2)"><td style="font:600 10px \'Space Grotesk\';color:var(--ti-warn,#B26B00);white-space:nowrap;padding-right:10px">Bono día</td>'
-            +isoList.map(function(iso){ var b=bonoDiaFor(iso,name); var bd=bonoDayCache[iso]; var tip=bd?('Nivel '+bd.nivel+' · pozo del equipo $'+fmt(bd.pozoDiaBruto)+(bd.pozoCongelado?(' (congelado, retoma en '+bd.retomaEn+' mallas)'):'')):''; return '<td class="ti-num" title="'+esc(tip)+'" style="padding:5px 6px;font:600 12px \'IBM Plex Mono\';color:'+(b?"var(--ti-warn,#B26B00)":"var(--ti-muted,#647787)")+'">'+(b?("$"+fmt(b)):"—")+'</td>'; }).join("")
+            +isoList.map(function(iso){
+              var key=extraHoursKey(name,iso);
+              var auto=bonoDiaFor(iso,name);
+              var bd=bonoDayCache[iso];
+              var manual=(config.bonoManualByPersonDay&&config.bonoManualByPersonDay[key]);
+              var esManual=manual!=null&&manual!==undefined;
+              var valorMostrado=esManual?manual:(auto||"");
+              var tip=bd?('Nivel '+bd.nivel+' · pozo del equipo $'+fmt(bd.pozoDiaBruto)+(bd.pozoCongelado?(' (congelado, retoma en '+bd.retomaEn+' mallas)'):'')):'';
+              tip+=esManual?' · monto puesto a mano':(auto?' · calculado automático':'');
+              return '<td style="padding:4px 5px" title="'+esc(tip)+'"><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(valorMostrado)+'" placeholder="'+(auto?("$"+fmt(auto)):"$0")+'" data-bono-key="'+esc(key)+'" style="width:100%;text-align:center;padding:5px 3px;font-size:11.5px;color:'+(esManual?"var(--ti-accent,#0E8FD6)":"var(--ti-warn,#B26B00)")+';font-weight:600"></td>';
+            }).join("")
           +'</tr>';
           var r3='<tr style="border-top:1px dashed var(--ti-line2,#E8EDF2)"><td style="font:600 10px \'Space Grotesk\';color:#7C5CBF;white-space:nowrap;padding-right:10px">Horas adic.</td>'
             +isoList.map(function(iso){ var key=extraHoursKey(name,iso); var v=(config.extraHoursByPersonDay&&config.extraHoursByPersonDay[key])||""; return '<td style="padding:4px 5px"><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(v)+'" placeholder="$0" data-extrahours-key="'+esc(key)+'" style="width:100%;text-align:center;padding:5px 3px;font-size:11.5px"></td>'; }).join("")
@@ -1772,7 +1821,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var head='<tr><th>Persona</th><th></th>'+DAYS_SHORT.map(function(l){ return '<th style="text-align:center">'+l+'</th>'; }).join("")+'<th style="text-align:center">Inasistencias</th></tr>';
         return '<div style="margin-top:'+(esParttime?"18px":"0")+'"><div style="padding:12px 18px 8px;font:700 12.5px \'Space Grotesk\';letter-spacing:.02em;color:var(--ti-text,#14202B);text-transform:uppercase">'+titulo+'</div><div style="overflow:auto"><table class="ti-tbl"><thead>'+head+'</thead><tbody>'+rowsHtml+'</tbody></table></div></div>';
       }
-      var inasistTable='<section style="'+CARD+';overflow:hidden"><div style="padding:15px 18px;border-bottom:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">Inasistencias de la semana</div><p style="margin:5px 0 0;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Si una persona no aparece en ningún turno programado, o queda marcada "Ausente" al cerrar su turno, cuenta como inasistencia. "Licencia" no cuenta como falta (se sigue pagando). Los días sin ningún turno se muestran como descanso. El bono día todavía no tiene monto — falta definir la fórmula del pozo. "Horas adic." es un monto manual por persona y por día.</p></div>'
+      var inasistTable='<section style="'+CARD+';overflow:hidden"><div style="padding:15px 18px;border-bottom:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">Inasistencias de la semana</div><p style="margin:5px 0 0;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Si una persona no aparece en ningún turno programado, o queda marcada "Ausente" al cerrar su turno, cuenta como inasistencia. "Licencia" no cuenta como falta (se sigue pagando). Los días sin ningún turno se muestran como descanso. El bono día se calcula solo con la producción real del turno cerrado; el número naranja es el automático, y puedes escribir encima para corregirlo a mano (queda en azul). "Horas adic." es un monto manual por persona y por día.</p></div>'
         +(rosterFull.length?attTableSection("Full times",rosterFull,false):"")
         +(rosterPart.length?attTableSection("Part times",rosterPart,true):"")
         +(!rosterFull.length&&!rosterPart.length?'<div style="padding:26px 18px;text-align:center;color:var(--ti-muted,#647787);font:500 13px \'Space Grotesk\'">No hay personas activas configuradas.</div>':"")
@@ -2753,7 +2802,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(t.hasAttribute("data-meta-mensual")){ config.metaMensualTon=Number(t.value||0); persistCfg(); cloudSet('config',config); }
     else if(t.hasAttribute("data-sacos-which")){ setSacos(t.getAttribute("data-sacos-which"),t.value); }
     else if(t.hasAttribute("data-c3-product")){ state.quickDraft.c3Product=t.value; recalcDesdeSecciones("invInicial"); recalcDesdeSecciones("invFinal"); render(); } else if(t.hasAttribute("data-qinv-product")){ var qw=t.getAttribute("data-qinv-which"), qp=t.getAttribute("data-qinv-product"); var qfac=kgMalla(qp); var qkg=(t.value===""?"":String(Number(t.value||0)*qfac)); var qlist=state.quickDraft[qw]||[]; var qfound=false; qlist=qlist.map(function(r){ if(r&&r.product===qp){ qfound=true; return {product:qp,mesh:t.value,kg:qkg}; } return r; }); if(!qfound) qlist.push({product:qp,mesh:t.value,kg:qkg}); state.quickDraft[qw]=qlist; } });
-  root.addEventListener("blur",function(e){ var t=e.target; if(!t||!t.hasAttribute) return; if(t.hasAttribute("data-salrow-idx")) salRowCommit(+t.getAttribute("data-salrow-idx")); else if(t.hasAttribute("data-payr-name")) payRateCommit(t.getAttribute("data-payr-name")); else if(t.hasAttribute("data-payx-name")) payExtraCommit(t.getAttribute("data-payx-name")); else if(t.hasAttribute("data-extrahours-key")) extraHoursPersonCommit(t.getAttribute("data-extrahours-key")); else if(t.hasAttribute("data-metaday-iso")){ var miso=t.getAttribute("data-metaday-iso"), mprod=t.getAttribute("data-metaday-product"); var meshEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="mesh"]'); var kgEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="kg"]'); var meshV=meshEl?meshEl.value:""; var kgV=kgEl?kgEl.value:""; var kgN=(kgV!==""&&!isNaN(Number(kgV)))?Number(kgV):0; var meshN=(meshV!==""&&!isNaN(Number(meshV)))?Number(meshV):null; metaCommit(miso,mprod,kgN,meshN); render(); } },true);
+  root.addEventListener("blur",function(e){ var t=e.target; if(!t||!t.hasAttribute) return; if(t.hasAttribute("data-salrow-idx")) salRowCommit(+t.getAttribute("data-salrow-idx")); else if(t.hasAttribute("data-payr-name")) payRateCommit(t.getAttribute("data-payr-name")); else if(t.hasAttribute("data-payx-name")) payExtraCommit(t.getAttribute("data-payx-name")); else if(t.hasAttribute("data-extrahours-key")) extraHoursPersonCommit(t.getAttribute("data-extrahours-key")); else if(t.hasAttribute("data-bono-key")) bonoManualCommit(t.getAttribute("data-bono-key")); else if(t.hasAttribute("data-metaday-iso")){ var miso=t.getAttribute("data-metaday-iso"), mprod=t.getAttribute("data-metaday-product"); var meshEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="mesh"]'); var kgEl=root.querySelector('[data-metaday-iso="'+miso+'"][data-metaday-product="'+mprod+'"][data-metaday-f="kg"]'); var meshV=meshEl?meshEl.value:""; var kgV=kgEl?kgEl.value:""; var kgN=(kgV!==""&&!isNaN(Number(kgV)))?Number(kgV):0; var meshN=(meshV!==""&&!isNaN(Number(meshV)))?Number(meshV):null; metaCommit(miso,mprod,kgN,meshN); render(); } },true);
   root.addEventListener("change",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="product"){ autoKgProd(pi); render(); } else { if(pf==="mesh") autoKgProd(pi); updateComputed(); } } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="date"||iff==="shiftId"||iff==="product") render(); } else if(t.hasAttribute("data-sal-f")){ var slf=t.getAttribute("data-sal-f"); state.salDraft[slf]=t.value; if(slf==="date"||slf==="product") render(); } else if(t.hasAttribute("data-rep-f")){ var rff=t.getAttribute("data-rep-f"); if(rff==="from") state.repFrom=t.value; else if(rff==="to") state.repTo=t.value; else if(rff==="altaDemanda") state.repAltaDemandaTon=Number(t.value||30); render(); } });
   document.addEventListener("keydown",function(e){ if(e.key==="Escape"){ if(state.daySummaryIso){ state.daySummaryIso=null; render(); } else if(state.chooser) closeChooser(); else if(state.drawerOpen) closeDrawer(); } });
   setInterval(function(){ state.nowMs=Date.now(); render(); },60000);
