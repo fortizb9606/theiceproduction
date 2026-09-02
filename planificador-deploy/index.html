@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-02-groupB-limpio-al-guardar -->
+<!-- BUILD-MARK: 2026-09-02-conteo-y-scroll -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -44,7 +44,10 @@ label{-webkit-user-select:none;user-select:none}
 .ti-nav-on .ti-nav-ic{color:var(--ti-accent,#0E8FD6);opacity:1}
 .ti-navfoot{border-top:1px solid var(--ti-nav-line,rgba(255,255,255,.08));padding:14px 12px 2px;margin-top:8px}
 
-.ti-topbar{position:sticky;top:0;z-index:80;display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap;padding:13px 24px 10px;background:var(--ti-topbar,rgba(255,255,255,.82));backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--ti-line,#DCE3EA)}
+.ti-topbar{position:sticky;top:0;z-index:80;display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap;padding:13px 24px 10px;background:var(--ti-surface,#fff);border-bottom:1px solid var(--ti-line,#DCE3EA)}
+/* (02-sep-2026) Se quitó el backdrop-filter:blur(16px) de la barra sticky: obligaba
+   a re-desenfocar todo lo que pasa debajo en cada frame del scroll y con la página
+   ya pesada (planilla, bonos) se sentía "pegado", sobre todo en iPad. Fondo sólido. */
 .ti-minical{padding:4px 2px 12px;flex:none;margin-top:14px;border-top:1px solid var(--ti-nav-line,rgba(255,255,255,.08))}
 .ti-minical-head{display:flex;align-items:center;justify-content:space-between;padding:0 1px 9px}
 .ti-minical-title{font:700 11.5px 'Space Grotesk';color:var(--ti-nav-text,#E2ECEF);text-transform:capitalize;letter-spacing:-.01em}
@@ -143,7 +146,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-02-groupB-limpio-al-guardar";
+  var APP_BUILD="2026-09-02-conteo-y-scroll";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -377,7 +380,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     // Defensa contra datos viejos: Grupo B se juntó con Full time hace rato,
     // pero si algún turno quedó con restos de groupB (viene de antes del
     // cambio), esto evita que un nombre salga duplicado en la tarjeta.
-    var crudo=s.type==="am"?((s.groupA||[]).concat(s.groupB||[]).concat(s.groupPT||[])):(s.people||[]);
+    var crudo=s.type==="am"?((s.groupA||[]).concat(s.groupPT||[])):(s.people||[]);
     var vistos={}, out=[];
     crudo.forEach(function(n){ var k=(n||"").trim(); if(!k){ out.push(n); return; } if(vistos[k]) return; vistos[k]=1; out.push(n); });
     return out;
@@ -683,7 +686,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     (state.shifts||[]).forEach(function(s){
       if(s.type==="am"){
         if(allBlank(s.groupA)&&!allBlank(config.defaultGroupA)){ s.groupA=config.defaultGroupA.slice(); ch.push(s); }
-        if(allBlank(s.groupB)&&!allBlank(config.defaultGroupB)){ s.groupB=config.defaultGroupB.slice(); if(ch.indexOf(s)<0)ch.push(s); }
+        if(s.groupB&&s.groupB.length){ s.groupB=[]; if(ch.indexOf(s)<0)ch.push(s); }
       } else if(s.type==="a"&&allBlank(s.people)&&!allBlank(config.defaultGroupA)){ s.people=config.defaultGroupA.slice(); ch.push(s); }
       else if(s.type==="b"&&allBlank(s.people)&&!allBlank(config.defaultGroupB)){ s.people=config.defaultGroupB.slice(); ch.push(s); }
     });
@@ -695,7 +698,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function cfgApplyGroups(){
     if(!confirm("¿Reemplazar los nombres de TODOS los turnos AM con el equipo full time por defecto?")) return;
     var ch=[];
-    state.shifts.forEach(function(s){ if(s.type==="am"){ s.groupA=(config.defaultGroupA||[]).slice(); s.groupB=(config.defaultGroupB||[]).slice(); ch.push(s); }
+    state.shifts.forEach(function(s){ if(s.type==="am"){ s.groupA=(config.defaultGroupA||[]).slice(); s.groupB=[]; ch.push(s); }
       else if(s.type==="a"){ s.people=(config.defaultGroupA||[]).slice(); ch.push(s); }
       else if(s.type==="b"){ s.people=(config.defaultGroupB||[]).slice(); ch.push(s); } });
     persist(); ch.forEach(function(s){ cloudSet('shifts',s); }); render();
@@ -716,7 +719,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       var o={ id:uid(), title:t.title, date:dISO(dy), type:t.group, start:t.start, end:t.end,
         products:DEFAULT_PRODUCTS.map(function(p){return {product:p,kg:0,mesh:0};}), costPerPerson:COST_PER_PERSON, wasteTarget:0,
         notes:"Opción B — horario fijo", kgReal:null, meshReal:null, realByProduct:null, invInicial:null, invFinal:null, prodType:"normal", maquina:"si", invInicial20:null, invFinal20:null, closed:false };
-      if(t.group==="am"){ o.groupA=(config.defaultGroupA||GRUPO_A_NAMES).slice(); o.groupB=(config.defaultGroupB||GRUPO_B_NAMES).slice(); }
+      if(t.group==="am"){ o.groupA=(config.defaultGroupA||GRUPO_A_NAMES).slice(); o.groupB=[]; }
       else { o.people = t.group==="a"?(config.defaultGroupA||GRUPO_A_NAMES).slice() : (t.group==="b"?(config.defaultGroupB||GRUPO_B_NAMES).slice() : ["",""]); }
       out.push(o);
     }); });
@@ -792,7 +795,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var estado=cerrado?{t:"En el calendario",c:"var(--ti-ok,#12A150)"}:(rd?(rd.noHubo?{t:"No hubo turno",c:"var(--ti-muted,#647787)"}:{t:"Falta aprobar",c:"var(--ti-warn,#B26B00)"}):{t:"Sin registrar",c:"var(--ti-muted,#647787)"});
         // Se muestra lo registrado en el iPad (en mallas). Solo si nunca se
         // registró ahí, se cae de vuelta a lo que tenga la tarjeta del calendario.
-        var nombres = rd ? (rd.names||[]) : rosterNames((s.groupA||[]).concat(s.groupB||[],s.groupPT||[],s.people||[]));
+        var nombres = rd ? (rd.names||[]) : rosterNames((s.groupA||[]).concat(s.groupPT||[],s.people||[]));
         var att = rd ? (rd.attendance||{}) : (s.attendance||{});
         var inv = rd ? (rd.invFinal||[]) : (s.invFinal||[]);
         var sacos = rd ? (rd.sacosFin||null) : ((s.invFinal20&&s.invFinal20.sacos)||null);
@@ -1145,7 +1148,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     if(s.registroDraft){
       state.quickDraft=JSON.parse(JSON.stringify(s.registroDraft));
     } else {
-      var rosterOficial=s.type==="am"?rosterNames((s.groupA||[]).concat(s.groupB||[]).concat(s.groupPT||[])):rosterNames(s.people||[]);
+      var rosterOficial=s.type==="am"?rosterNames((s.groupA||[]).concat(s.groupPT||[])):rosterNames(s.people||[]);
       var attOficial={}; rosterOficial.forEach(function(n){ attOficial[n]=(s.attendance&&s.attendance[n])||"presente"; });
       var invIniPrefill=(s.invInicial&&s.invInicial.length)?s.invInicial.slice():(function(){
         var prev=findPrevShiftFor(s.date,s.start);
@@ -1682,7 +1685,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
               '<div style="margin-top:5px;display:flex;flex-direction:column;gap:2px">'+rows+'</div>'+kgline+'</div>';
           } else if(first.type==="am"){
             var s=first; var closed=!!s.closed;
-            var nFull=rosterNames((s.groupA||[]).concat(s.groupB||[])).length, npt=gcount(s.groupPT);
+            var nFull=rosterNames(s.groupA||[]).length, npt=gcount(s.groupPT);
             var totBar=(nFull+npt)||1, fullPct=Math.round(nFull/totBar*100);
             var pinfo=presentInfo(s); var tot=pinfo.total;
             var amStyle=base.replace("border-left:3px solid "+c.bar+";","")+"padding-left:12px;cursor:grab;";
@@ -1927,7 +1930,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         shiftsDeEsteTipo.forEach(function(s){
           var att=s.attendance||{};
           var confirmable=s.closed||s.date===todayIso;
-          rosterNames((s.groupA||[]).concat(s.groupB||[],s.groupPT||[],s.people||[])).forEach(function(n){
+          rosterNames((s.groupA||[]).concat(s.groupPT||[],s.people||[])).forEach(function(n){
             if(nombres.indexOf(n)<0) return; // solo cuenta si sigue asignado a este turno en Configuración
             porPersona[n]=porPersona[n]||{presente:0,licencia:0,ausente:0,pendiente:0};
             var st=att[n]||(confirmable?"presente":"pendiente");
