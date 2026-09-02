@@ -2,18 +2,47 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Correos con acceso — deben coincidir con ALLOWED_EMAILS en firebase-sync.js
-    function permitido() {
+    function esBotAnonimo() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    function esEquipoPermitido() {
       return request.auth != null
         && request.auth.token.email_verified == true
         && request.auth.token.email in [
-          'felipe@theice.cl'
-          // , 'otra.persona@theice.cl'
+          'felipe@theice.cl',
+          'gustavo@theice.cl',
+          'sebastian@theice.cl'
         ];
     }
 
-    match /{document=**} {
-      allow read, write: if permitido();
+    function autorizado() {
+      return esBotAnonimo() || esEquipoPermitido();
     }
+
+    // shifts tiene una regla extra (02-sep-2026): nunca se puede escribir algo
+    // en groupB que no sea un arreglo vacío. Ese campo quedó obsoleto (el
+    // equipo se maneja como "Full time / Part time" ahora), pero algo lo sigue
+    // reescribiendo con datos viejos y duplica gente en las tarjetas — esta
+    // regla lo bloquea directo en el servidor, sin importar qué lo mande.
+    match /shifts/{id} {
+      allow read: if autorizado();
+      allow create, update: if autorizado()
+        && (!('groupB' in request.resource.data) || request.resource.data.groupB.size() == 0);
+      allow delete: if autorizado();
+    }
+
+    // El resto de las colecciones, sin restricción especial — igual que siempre.
+    match /inventory/{id}      { allow read, write: if autorizado(); }
+    match /salidas/{id}        { allow read, write: if autorizado(); }
+    match /metas/{id}          { allow read, write: if autorizado(); }
+    match /ocBolsas/{id}       { allow read, write: if autorizado(); }
+    match /retirosBolsas/{id}  { allow read, write: if autorizado(); }
+    match /comprasMalla/{id}   { allow read, write: if autorizado(); }
+    match /comprasGuantes/{id} { allow read, write: if autorizado(); }
+    match /conteosGuantes/{id} { allow read, write: if autorizado(); }
+    match /config/{id}         { allow read, write: if autorizado(); }
+    match /gen/{id}            { allow read, write: if autorizado(); }
   }
 }
