@@ -17,6 +17,15 @@
    la vía moderna, pero guarda de verdad, que es lo que importa).
    ============================================================ */
 (function () {
+  // Guardia de seguridad: este respaldo NUNCA debe conectarse a la base real
+  // desde un entorno de pruebas local (localhost / 127.0.0.1). El 01-sep-2026
+  // pruebas automatizadas corriendo en local terminaron escribiendo datos de
+  // prueba en la base de producción real porque este archivo no distinguía
+  // entre ambiente de pruebas y el sitio publicado de verdad.
+  if (typeof location !== "undefined" && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+    console.warn("[TISync-fallback] Bloqueado: no se conecta a producción desde localhost.");
+    return;
+  }
   var API_KEY = "AIzaSyAZzo8LyKr-Htf49uunKY6GFn130Hefwhk";
   var PROJECT = "theiceproduction";
   var ESPERA_MS = 3500;
