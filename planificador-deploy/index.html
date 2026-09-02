@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-01-costo-real-y-bono-editable -->
+<!-- BUILD-MARK: 2026-09-02-fix-roster-y-blindaje-pruebas -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -143,7 +143,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-01-costo-real-y-bono-editable";
+  var APP_BUILD="2026-09-02-fix-roster-y-blindaje-pruebas";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -2854,6 +2854,6 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 <script type="module" src="firebase-sync.js"></script>
 <!-- Respaldo para iPads antiguos: script clásico (sin módulos ES) que se activa
      solo si la vía moderna no logró conectar. Ver firebase-rest-fallback.js -->
-<script src="firebase-rest-fallback.js?v=4"></script>
+<script src="firebase-rest-fallback.js?v=5"></script>
 </body>
 </html>
