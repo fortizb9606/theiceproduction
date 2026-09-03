@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-02-conteo-y-scroll -->
+<!-- BUILD-MARK: 2026-09-03-salidas-aisladas-por-turno -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -146,7 +146,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-02-conteo-y-scroll";
+  var APP_BUILD="2026-09-03-salidas-aisladas-por-turno";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -1398,8 +1398,11 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
      Se recalcula la vista al tipear (autoKgSalRow/updateComputed) y se persiste a la
      colección `salidas` recién al salir del campo (blur), sin necesidad de botón. */
   function salidasRowsFor(products,day){
+    var d=state.draft;
+    var esAM=d&&d.type==="am";
+    var shiftId=d&&d.id;
     return products.map(function(p){
-      var kg=salidasKgFor(p.product,day); var f=kgMalla(p.product);
+      var kg=salidasKgForShift(p.product,day,shiftId,esAM); var f=kgMalla(p.product);
       if(!kg) return {mesh:"",kg:""};
       var mesh=f>0?String(kg/f):"";
       return {mesh:mesh,kg:String(kg)};
@@ -1415,13 +1418,22 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var row=(d.salidasCount||[])[idx]; if(!row) return;
     var kgN=(row.kg!==""&&row.kg!=null&&!isNaN(Number(row.kg)))?Number(row.kg):0;
     var meshN=(row.mesh!==""&&row.mesh!=null&&!isNaN(Number(row.mesh)))?Number(row.mesh):null;
-    if(Math.abs(salidasKgFor(p.product,d.day)-kgN)<0.0001) return;
-    var toRemove=salidas.filter(function(x){ return x.date===d.day&&x.product===p.product; });
+    var esAM=d.type==="am"; var shiftId=d.id;
+    if(Math.abs(salidasKgForShift(p.product,d.day,shiftId,esAM)-kgN)<0.0001) return;
+    // Solo se borran/reemplazan las entradas de ESTE turno (más las viejas sin
+    // etiqueta, si este turno es AM) — jamás las de otro turno del mismo día.
+    var toRemove=salidas.filter(function(x){
+      if(x.date!==d.day||x.product!==p.product) return false;
+      if(x.shiftId===shiftId) return true;
+      if(esAM&&!x.shiftId) return true;
+      return false;
+    });
     toRemove.forEach(function(x){ cloudDel('salidas',x.id); });
-    salidas=salidas.filter(function(x){ return !(x.date===d.day&&x.product===p.product); });
+    var idsRemove={}; toRemove.forEach(function(x){ idsRemove[x.id]=1; });
+    salidas=salidas.filter(function(x){ return !idsRemove[x.id]; });
     if(kgN>0){
       var f=kgMalla(p.product);
-      var e={id:uid(),date:d.day,product:p.product,kg:kgN,mesh:meshN,bags:(f>0&&meshN!=null)?meshN*bagsPerMalla(p.product):null,note:"",source:"manual",ts:state.nowMs};
+      var e={id:uid(),date:d.day,product:p.product,kg:kgN,mesh:meshN,bags:(f>0&&meshN!=null)?meshN*bagsPerMalla(p.product):null,note:"",source:"manual",ts:state.nowMs,shiftId:shiftId};
       salidas.push(e); cloudSet('salidas',e);
     }
     persistSal();
@@ -1519,6 +1531,23 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function draftCPK(){ var kg=draftMetaKg(); return kg>0?("$"+fmt(Math.round(draftLabor()/kg))):"—"; }
   /* ---- producción real = Inventario final − Inventario inicial + Salidas (cuadre automático) ---- */
   function salidasKgFor(product,date){ return salidas.filter(function(x){ return x.product===product&&x.date===date; }).reduce(function(a,x){ return a+Number(x.kg||0); },0); }
+  /* Salidas que pertenecen a ESTE turno específico, no al día completo (02-sep-2026).
+     Antes cada turno (AM/Extensión/PM) mostraba y podía sobreescribir el TOTAL del
+     día para un producto — si tocabas la fila de salidas en el turno PM (que
+     normalmente queda en 0), borraba lo que ya estaba cargado en el turno AM,
+     porque ambos escribían sobre la misma fecha+producto sin distinguir de dónde
+     venía cada entrada. Ahora cada entrada de salida queda etiquetada con el id
+     del turno donde se cargó. Las entradas viejas sin etiqueta (de antes de este
+     arreglo) se cuentan como parte del turno AM, que es de donde realmente salían
+     casi siempre — así no desaparecen de la vista al abrir el turno. */
+  function salidasKgForShift(product,date,shiftId,esAM){
+    return salidas.filter(function(x){
+      if(x.product!==product||x.date!==date) return false;
+      if(x.shiftId===shiftId) return true;
+      if(esAM&&!x.shiftId) return true;
+      return false;
+    }).reduce(function(a,x){ return a+Number(x.kg||0); },0);
+  }
   function draftInvIni(i){ var v=(state.draft.invInicial||[])[i]; var kg=v&&v.kg; return (kg!==""&&kg!=null&&!isNaN(Number(kg)))?Number(kg):null; }
   function draftInvFin(i){ var v=(state.draft.invCounts||[])[i]; var kg=v&&v.kg; return (kg!==""&&kg!=null&&!isNaN(Number(kg)))?Number(kg):null; }
   function draftComputedReal(i){ var p=state.draft.products[i]; if(!p) return null; var ini=draftInvIni(i), fin=draftInvFin(i); if(ini==null||fin==null) return null; var sal=salidasKgFor(p.product,state.draft.day); var kg=fin-ini+sal; var f=kgMalla(p.product); var mesh=f>0?(kg/f):null; return {kg:kg,mesh:mesh,sal:sal}; }
