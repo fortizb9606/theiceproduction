@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-03-fix-id-turno-real -->
+<!-- BUILD-MARK: 2026-09-03-fix-doble-conteo-salidas -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -146,7 +146,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-03-fix-id-turno-real";
+  var APP_BUILD="2026-09-03-fix-doble-conteo-salidas";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -1550,7 +1550,22 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   }
   function draftInvIni(i){ var v=(state.draft.invInicial||[])[i]; var kg=v&&v.kg; return (kg!==""&&kg!=null&&!isNaN(Number(kg)))?Number(kg):null; }
   function draftInvFin(i){ var v=(state.draft.invCounts||[])[i]; var kg=v&&v.kg; return (kg!==""&&kg!=null&&!isNaN(Number(kg)))?Number(kg):null; }
-  function draftComputedReal(i){ var p=state.draft.products[i]; if(!p) return null; var ini=draftInvIni(i), fin=draftInvFin(i); if(ini==null||fin==null) return null; var sal=salidasKgFor(p.product,state.draft.day); var kg=fin-ini+sal; var f=kgMalla(p.product); var mesh=f>0?(kg/f):null; return {kg:kg,mesh:mesh,sal:sal}; }
+  function draftComputedReal(i){
+    var p=state.draft.products[i]; if(!p) return null;
+    var ini=draftInvIni(i), fin=draftInvFin(i); if(ini==null||fin==null) return null;
+    // Antes esto sumaba SIEMPRE el total de salidas del día completo, sin importar
+    // qué turno se estaba cerrando — si un día tiene AM + Extensión + Noche, cada
+    // uno sumaba las MISMAS salidas de nuevo, triplicando el conteo (03-sep-2026,
+    // caso real de Felipe: turno Noche mostraba 178 mallas cuando la producción
+    // real era 38, porque las 140 mallas de salida de AM se contaban otra vez acá).
+    // Ahora cada turno solo suma las salidas que le corresponden a ÉL — AM se queda
+    // con las del día completo (ahí se cargan casi siempre); los demás turnos del
+    // mismo día ya no repiten esa resta/suma, solo cuentan su propio cambio de
+    // inventario.
+    var d=state.draft;
+    var sal=salidasKgForShift(p.product,d.day,d.id,d.type==="am");
+    var kg=fin-ini+sal; var f=kgMalla(p.product); var mesh=f>0?(kg/f):null; return {kg:kg,mesh:mesh,sal:sal};
+  }
   function draftRealTotalsKnown(){ return state.draft.products.some(function(_,i){ return draftComputedReal(i)!=null; }); }
   function draftRealKg(){ var t=0; state.draft.products.forEach(function(_,i){ var r=draftComputedReal(i); if(r) t+=r.kg; }); return t; }
   function draftRealMesh(){ var t=0; state.draft.products.forEach(function(_,i){ var r=draftComputedReal(i); if(r&&r.mesh!=null) t+=r.mesh; }); return t; }
@@ -2721,14 +2736,28 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       invIniHtml='<div style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="border-radius:14px;background:var(--ti-accent-soft,#E4F2FB);border:1px solid var(--ti-accent,#0E8FD6);padding:15px 16px"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);display:flex;align-items:center;gap:8px">'+stepBadge(3)+'<span style="width:5px;height:14px;border-radius:3px;background:var(--ti-accent,#0E8FD6);display:block"></span>Inventario inicial del turno</div><button class="ti-ghost ti-press" data-act="pullPrevInv" title="Vuelve a traer el inventario final del turno anterior, por si quedó desactualizado" style="display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 11px;border-radius:9px;border:1px solid var(--ti-accent,#0E8FD6);background:var(--ti-surface,#fff);color:var(--ti-accent,#0E8FD6);font:600 11.5px \'Space Grotesk\';white-space:nowrap">'+IC.refresh(14)+'Traer del turno anterior</button></div><p style="margin:0 0 12px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Cuenta las mallas que había de cada producto <b>al empezar</b> el turno — los kilos se calculan solos.</p>'+invRowsHead+'<div style="display:flex;flex-direction:column;gap:7px">'+iniRows+'</div>'+saco20Row("ini",ini20)+'</div></div>';
 
       /* ---- salidas del día, embebidas en el turno con el MISMO estilo que Inventario:
-         una fila por producto del turno, mismo header de columnas (invRowsHead) ---- */
+         una fila por producto del turno, mismo header de columnas (invRowsHead).
+         Solo el turno AM las edita (ahí se cargan casi siempre, según Felipe). Los
+         demás turnos del día (Noche, Extensión) las muestran de SOLO LECTURA con el
+         total real del día completo — antes mostraban "0" editable en su propia fila,
+         y aunque el cálculo de producción sí sumaba bien el total del día por detrás,
+         parecía que las salidas no se estaban contando (03-sep-2026). ---- */
+      var esAMEditable=d.type==="am";
       if(!state.draft.salidasCount) state.draft.salidasCount=salidasRowsFor(d.products,d.day);
       var salRowsHtml=d.products.map(function(p,idx){
-        var v=(state.draft.salidasCount&&state.draft.salidasCount[idx])||{mesh:"",kg:""};
-        var f=kgMalla(p.product); var kgRO=f>0?" readonly":"";
-        return '<div style="display:grid;grid-template-columns:1fr 76px 76px;gap:7px;align-items:center"><span style="font:500 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product)+'</span><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(v.mesh)+'" data-salrow-idx="'+idx+'" data-salrow-f="mesh" placeholder="mallas"><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(v.kg)+'" data-salrow-idx="'+idx+'" data-salrow-f="kg" data-salrowkgof="'+idx+'" placeholder="kg"'+kgRO+'></div>';
+        var f=kgMalla(p.product);
+        if(esAMEditable){
+          var v=(state.draft.salidasCount&&state.draft.salidasCount[idx])||{mesh:"",kg:""};
+          var kgRO=f>0?" readonly":"";
+          return '<div style="display:grid;grid-template-columns:1fr 76px 76px;gap:7px;align-items:center"><span style="font:500 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product)+'</span><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(v.mesh)+'" data-salrow-idx="'+idx+'" data-salrow-f="mesh" placeholder="mallas"><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(v.kg)+'" data-salrow-idx="'+idx+'" data-salrow-f="kg" data-salrowkgof="'+idx+'" placeholder="kg"'+kgRO+'></div>';
+        }
+        // solo lectura: el total REAL del día completo (venga de donde venga), el
+        // mismo número que ya se usa en el cálculo de producción de este turno.
+        var kgDia=salidasKgFor(p.product,d.day);
+        var meshDia=f>0?(kgDia/f):0;
+        return '<div style="display:grid;grid-template-columns:1fr 76px 76px;gap:7px;align-items:center"><span style="font:500 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product)+'</span><span style="height:38px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line2,#E8EDF2);color:var(--ti-muted,#647787);font:600 12.5px \'IBM Plex Mono\'">'+(kgDia?fmt1(meshDia):"—")+'</span><span style="height:38px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line2,#E8EDF2);color:var(--ti-text,#14202B);font:600 12.5px \'IBM Plex Mono\'">'+(kgDia?fmt(kgDia):"—")+'</span></div>';
       }).join("");
-      var salidasHtml='<div style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:5px;display:flex;align-items:center;gap:8px">'+stepBadge(4)+barb+'Salidas del día</div><p style="margin:0 0 12px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Lo que salió de cada producto en '+esc(d.day)+' — los kilos se calculan solos. Se descuenta del cierre para calcular la producción real; se guarda al salir del campo, sin botón aparte.</p>'+
+      var salidasHtml='<div style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);margin-bottom:5px;display:flex;align-items:center;gap:8px">'+stepBadge(4)+barb+'Salidas del día</div><p style="margin:0 0 12px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+(esAMEditable?('Lo que salió de cada producto en '+esc(d.day)+' — los kilos se calculan solos. Se descuenta del cierre para calcular la producción real; se guarda al salir del campo, sin botón aparte.'):('Este turno no carga salidas propias — se muestra de solo lectura el total real del día '+esc(d.day)+', cargado en el Turno AM. Ese es el número que ya se está usando en el cálculo de abajo.'))+'</p>'+
         '<div style="padding:13px 14px;border:1px dashed var(--ti-line,#cdd6df);border-radius:12px;background:var(--ti-surface2,#F3F6F9)">'+invRowsHead+'<div style="display:flex;flex-direction:column;gap:7px">'+salRowsHtml+'</div></div>'+
       '</div>';
       var realRows=d.products.map(function(p,idx){ var r=draftComputedReal(idx); var kgTxt=r?fmt(Math.round(r.kg)):"—"; var meshTxt=(r&&r.mesh!=null)?fmt1(r.mesh):"—"; return '<div style="display:grid;grid-template-columns:1fr 84px 84px;gap:8px;align-items:center"><span style="font:500 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product)+'</span><span data-realout-mesh="'+idx+'" style="height:38px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line2,#E8EDF2);color:var(--ti-muted,#647787);font:600 13px \'IBM Plex Mono\'">'+meshTxt+'</span><span data-realout-kg="'+idx+'" style="height:38px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line2,#E8EDF2);color:var(--ti-text,#14202B);font:600 13px \'IBM Plex Mono\'">'+kgTxt+'</span></div>'; }).join("");
