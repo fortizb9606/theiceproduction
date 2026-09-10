@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-03-fix-doble-conteo-salidas -->
+<!-- BUILD-MARK: 2026-09-10-compras-oc-agrupadas -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -146,7 +146,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-03-fix-doble-conteo-salidas";
+  var APP_BUILD="2026-09-10-compras-oc-agrupadas";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -188,11 +188,71 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function persistCompraGuantes(){ try{ localStorage.setItem(GUANTES_KEY,JSON.stringify(comprasGuantes)); }catch(e){} }
   function persistConteoGuantes(){ try{ localStorage.setItem(CONTEO_GUANTES_KEY,JSON.stringify(conteosGuantes)); }catch(e){} }
 
-  function addOC(producto,fecha,cantidad,notas){ var e={id:uid(),producto:producto,fecha:fecha,cantidad:Number(cantidad||0),notas:notas||"",ts:state.nowMs}; ocBolsas.push(e); persistOC(); cloudSet('ocBolsas',e); return e; }
+  function addOC(producto,fecha,cantidad,notas,nombre){ var e={id:uid(),nombre:(nombre||"").trim(),producto:producto,fecha:fecha,cantidad:Number(cantidad||0),notas:notas||"",ts:state.nowMs}; ocBolsas.push(e); persistOC(); cloudSet('ocBolsas',e); return e; }
   function deleteOC(id){ var rel=retirosBolsas.filter(function(r){return r.ocId===id;}); rel.forEach(function(r){ cloudDel('retirosBolsas',r.id); }); retirosBolsas=retirosBolsas.filter(function(r){return r.ocId!==id;}); ocBolsas=ocBolsas.filter(function(o){return o.id!==id;}); persistOC(); persistRetiros(); cloudDel('ocBolsas',id); }
   function addRetiro(ocId,fecha,cantidad,notas){ var e={id:uid(),ocId:ocId,fecha:fecha,cantidad:Number(cantidad||0),notas:notas||"",ts:state.nowMs}; retirosBolsas.push(e); persistRetiros(); cloudSet('retirosBolsas',e); return e; }
   function deleteRetiro(id){ retirosBolsas=retirosBolsas.filter(function(r){return r.id!==id;}); persistRetiros(); cloudDel('retirosBolsas',id); }
   function ocRetiradoTotal(ocId){ return retirosBolsas.filter(function(r){return r.ocId===ocId;}).reduce(function(a,r){return a+Number(r.cantidad||0);},0); }
+  /* ---- Bolsas: cuánto se ha consumido de verdad con la producción ----
+     Cada malla producida de un producto gasta bagsPerMalla(producto) bolsas.
+     Se cuenta solo sobre turnos CERRADOS (producción real, no metas). */
+  var UMBRAL_BOLSAS_BAJO=6000;   // bajo esto, se avisa que queda poco stock en planta
+  function consumoBolsasProducto(producto){
+    var b=bagsPerMalla(producto); if(!(b>0)) return 0;
+    var t=0;
+    state.shifts.forEach(function(s){
+      if(!s.closed) return;
+      (s.products||[]).forEach(function(p,i){
+        if(p.product!==producto) return;
+        var rb=s.realByProduct&&s.realByProduct[i];
+        var mesh=rb?Number(rb.mesh||0):0;
+        if(mesh>0) t+=mesh*b;
+      });
+    });
+    return Math.round(t);
+  }
+  /* Reparte el consumo entre los retiros de ese producto, del más antiguo al más
+     nuevo (lo primero que llegó a planta es lo primero que se gasta). Devuelve,
+     por retiro, cuánto se consumió y cuánto queda físicamente en planta. */
+  function retirosConEstado(producto){
+    var idsDe={}; ocBolsas.forEach(function(o){ if(o.producto===producto) idsDe[o.id]=1; });
+    var rets=retirosBolsas.filter(function(r){ return idsDe[r.ocId]; })
+      .slice().sort(function(a,b){ return (a.fecha||"").localeCompare(b.fecha||"")||((a.ts||0)-(b.ts||0)); });
+    var pend=consumoBolsasProducto(producto);
+    var out=rets.map(function(r){
+      var cant=Number(r.cantidad||0);
+      var usado=Math.min(cant,pend); pend-=usado;
+      return {retiro:r,ocId:r.ocId,cantidad:cant,consumido:usado,enPlanta:cant-usado};
+    });
+    // Si sobra consumo, se produjo más de lo que se ha retirado (déficit real)
+    return {retiros:out,deficit:Math.max(0,pend)};
+  }
+  function bolsasEnPlantaOC(ocId,producto){
+    var e=retirosConEstado(producto);
+    return e.retiros.filter(function(x){ return x.ocId===ocId; })
+      .reduce(function(a,x){ return a+x.enPlanta; },0);
+  }
+  function bolsasConsumidasOC(ocId,producto){
+    var e=retirosConEstado(producto);
+    return e.retiros.filter(function(x){ return x.ocId===ocId; })
+      .reduce(function(a,x){ return a+x.consumido; },0);
+  }
+  /* Agrupa las OC por su número/nombre: si dos productos comparten "OC 16",
+     quedan en un mismo bloque para identificarlos frente a otra OC. */
+  function ocsAgrupadas(){
+    var grupos={},orden=[];
+    ocBolsas.forEach(function(o){
+      var nom=(o.nombre||"").trim();
+      var key=nom?("n:"+nom.toLowerCase()):("id:"+o.id);
+      if(!grupos[key]){ grupos[key]={nombre:nom,ocs:[]}; orden.push(key); }
+      grupos[key].ocs.push(o);
+    });
+    return orden.map(function(k){ return grupos[k]; }).sort(function(a,b){
+      var fa=a.ocs.map(function(o){return o.fecha||"";}).sort().pop()||"";
+      var fb=b.ocs.map(function(o){return o.fecha||"";}).sort().pop()||"";
+      return fb.localeCompare(fa);
+    });
+  }
   function bolsasRetiradasTotal(producto){ var ocs=ocBolsas.filter(function(o){return o.producto===producto;}).map(function(o){return o.id;}); return retirosBolsas.filter(function(r){return ocs.indexOf(r.ocId)>=0;}).reduce(function(a,r){return a+Number(r.cantidad||0);},0); }
 
   function addCompraMalla(fecha,rollos,notas){ var e={id:uid(),fecha:fecha,rollos:Number(rollos||0),notas:notas||"",ts:state.nowMs}; comprasMalla.push(e); persistCompraMalla(); cloudSet('comprasMalla',e); return e; }
@@ -685,7 +745,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var ch=[];
     (state.shifts||[]).forEach(function(s){
       if(s.type==="am"){
-        if(allBlank(s.groupA)&&!allBlank(config.defaultGroupA)){ s.groupA=config.defaultGroupA.slice(); ch.push(s); }
+        var dbsB=config.defaultByShift||{am:[]};
+        var amB=(dbsB.am||[]).filter(Boolean);
+        if(allBlank(s.groupA)&&amB.length){ s.groupA=amB.filter(function(n){ return !esPartTime(n); }); s.groupPT=amB.filter(function(n){ return esPartTime(n); }); ch.push(s); }
         if(s.groupB&&s.groupB.length){ s.groupB=[]; if(ch.indexOf(s)<0)ch.push(s); }
       } else if(s.type==="a"&&allBlank(s.people)&&!allBlank(config.defaultGroupA)){ s.people=config.defaultGroupA.slice(); ch.push(s); }
       else if(s.type==="b"&&allBlank(s.people)&&!allBlank(config.defaultGroupB)){ s.people=config.defaultGroupB.slice(); ch.push(s); }
@@ -719,8 +781,22 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       var o={ id:uid(), title:t.title, date:dISO(dy), type:t.group, start:t.start, end:t.end,
         products:DEFAULT_PRODUCTS.map(function(p){return {product:p,kg:0,mesh:0};}), costPerPerson:COST_PER_PERSON, wasteTarget:0,
         notes:"Opción B — horario fijo", kgReal:null, meshReal:null, realByProduct:null, invInicial:null, invFinal:null, prodType:"normal", maquina:"si", invInicial20:null, invFinal20:null, closed:false };
-      if(t.group==="am"){ o.groupA=(config.defaultGroupA||GRUPO_A_NAMES).slice(); o.groupB=[]; }
-      else { o.people = t.group==="a"?(config.defaultGroupA||GRUPO_A_NAMES).slice() : (t.group==="b"?(config.defaultGroupB||GRUPO_B_NAMES).slice() : ["",""]); }
+      // La dotación de un turno nuevo sale de Configuración → "Quién va en cada
+      // turno" (config.defaultByShift), que es lo que Felipe edita de verdad.
+      // Antes salía de defaultGroupA, un campo viejo que quedó congelado con
+      // nombres antiguos (Nicole/Santiago/Kevin) y por eso las semanas nuevas se
+      // generaban con gente equivocada, distinta a la configurada (07-sep-2026).
+      var dbsGen=config.defaultByShift||{am:[],ext:[],pm:[]};
+      var esNocheGen=t.group==="night";
+      var esExtGen=t.group==="custom"||/extensi/i.test(t.title||"");
+      if(t.group==="am"){
+        var amGen=(dbsGen.am||[]).filter(Boolean);
+        o.groupA=amGen.filter(function(n){ return !esPartTime(n); });
+        o.groupPT=amGen.filter(function(n){ return esPartTime(n); });
+        o.groupB=[];
+      } else if(esNocheGen){ o.people=(dbsGen.pm||[]).filter(Boolean).slice(); }
+      else if(esExtGen){ o.people=(dbsGen.ext||[]).filter(Boolean).slice(); }
+      else { o.people=["",""]; }
       out.push(o);
     }); });
     return out;
@@ -2102,7 +2178,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var comprasBody="";
     if(state.view==="compras"){
       var cd=state.compraDraft||(state.compraDraft={
-        ocProducto:activeProducts().filter(function(p){return bagsPerMalla(p)>0;})[0]||"Original 3 kg", ocFecha:todayIso, ocCantidad:"", ocNotas:"",
+        ocNombre:"", ocProducto:activeProducts().filter(function(p){return bagsPerMalla(p)>0;})[0]||"Original 3 kg", ocFecha:todayIso, ocCantidad:"", ocNotas:"",
         retiroOcId:"", retiroFecha:todayIso, retiroCantidad:"", retiroNotas:"",
         mallaFecha:todayIso, mallaRollos:"", mallaNotas:"",
         guantesFecha:todayIso, guantesCajas:"", guantesNotas:"",
@@ -2111,8 +2187,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 
       /* ---- Bolsas: OC + retiros ---- */
       var bagProds=activeProducts().filter(function(p){return bagsPerMalla(p)>0;});
-      var ocForm='<section style="'+CARD+';overflow:hidden">'+sectionHead("Nueva orden de compra (OC) de bolsas","Registra el total de la OC — nunca pisa una OC anterior, cada una queda guardada aparte")+
-        '<div style="padding:16px 18px;display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:12px;align-items:end">'+
+      var ocForm='<section style="'+CARD+';overflow:hidden">'+sectionHead("Nueva orden de compra (OC) de bolsas","Pon el mismo N° de OC para varios productos y quedan agrupados en un solo bloque abajo")+
+        '<div style="padding:16px 18px;display:grid;grid-template-columns:1fr 1.3fr 1fr 1fr;gap:12px;align-items:end">'+
+        '<div><label style="display:block;font:600 11px \'Space Grotesk\';color:var(--ti-muted,#647787);margin-bottom:5px">N° de OC</label><input type="text" placeholder="ej. OC 16" value="'+esc(cd.ocNombre||"")+'" data-compra-f="ocNombre"></div>'+
         '<div><label style="display:block;font:600 11px \'Space Grotesk\';color:var(--ti-muted,#647787);margin-bottom:5px">Producto</label><select data-compra-f="ocProducto">'+bagProds.map(function(p){return '<option value="'+esc(p)+'"'+(cd.ocProducto===p?" selected":"")+'>'+esc(p)+'</option>';}).join("")+'</select></div>'+
         '<div><label style="display:block;font:600 11px \'Space Grotesk\';color:var(--ti-muted,#647787);margin-bottom:5px">Fecha OC</label><input type="date" value="'+esc(cd.ocFecha)+'" data-compra-f="ocFecha"></div>'+
         '<div><label style="display:block;font:600 11px \'Space Grotesk\';color:var(--ti-muted,#647787);margin-bottom:5px">Cantidad total</label><input type="number" min="0" step="1" inputmode="numeric" placeholder="ej. 100000" value="'+esc(cd.ocCantidad)+'" data-compra-f="ocCantidad"></div>'+
@@ -2129,13 +2206,84 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         (ocsAbiertas.length===0&&ocBolsas.length>0?'<div style="padding:0 18px 16px;font:500 12px \'Space Grotesk\';color:var(--ti-warn,#B26B00)">No quedan OCs con saldo por retirar — registra una nueva arriba.</div>':'')+
         '</section>';
 
-      var ocRows=ocBolsas.slice().sort(function(a,b){ return (b.fecha||"").localeCompare(a.fecha||"")||(b.ts-a.ts); }).map(function(o){
-        var retirado=ocRetiradoTotal(o.id); var restante=o.cantidad-retirado; var pct=o.cantidad>0?Math.round(retirado/o.cantidad*100):0;
-        var retirosDeEsta=retirosBolsas.filter(function(r){return r.ocId===o.id;}).sort(function(a,b){return (b.fecha||"").localeCompare(a.fecha||"")||(b.ts-a.ts);});
-        var retirosHtml=retirosDeEsta.length?('<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--ti-line2,#E8EDF2)">'+retirosDeEsta.map(function(r){ return '<div style="display:flex;align-items:center;gap:10px;padding:3px 0;font:500 11.5px \'IBM Plex Mono\';color:var(--ti-muted,#647787)"><span style="flex:1">'+esc(r.fecha)+(r.notas?(" · "+esc(r.notas)):"")+'</span><span style="color:var(--ti-text,#14202B);font-weight:600">-'+fmt(r.cantidad)+'</span><button data-act="delRetiro" data-id="'+r.id+'" title="Eliminar retiro" style="border:0;background:transparent;color:var(--ti-muted,#647787);cursor:pointer;padding:2px">'+IC.trash()+'</button></div>'; }).join("")+'</div>'):"";
-        return '<div style="padding:14px 0;border-top:1px solid var(--ti-line2,#E8EDF2)"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="width:10px;height:10px;border-radius:3px;flex:none;background:'+prodColor(o.producto)+'"></span><div style="flex:1;min-width:160px"><div style="font:600 13.5px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(o.producto)+'</div><div style="font:500 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">OC del '+esc(o.fecha)+(o.notas?(" · "+esc(o.notas)):"")+'</div></div><div style="text-align:right"><div style="font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(restante)+'</div><div style="font:600 10.5px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:var(--ti-muted,#647787)">restante por retirar</div></div><button data-act="delOC" data-id="'+o.id+'" title="Eliminar OC completa" style="border:0;background:transparent;color:var(--ti-muted,#647787);cursor:pointer;padding:6px">'+IC.trash()+'</button></div><div style="margin-top:8px;display:flex;align-items:center;gap:10px"><div style="flex:1;height:8px;border-radius:6px;background:var(--ti-surface2,#F3F6F9);overflow:hidden"><div style="height:100%;width:'+Math.min(100,pct)+'%;background:'+prodColor(o.producto)+';border-radius:6px"></div></div><span class="ti-num" style="font:500 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787);white-space:nowrap">'+fmt(retirado)+' de '+fmt(o.cantidad)+' retirados</span></div>'+retirosHtml+'</div>';
-      }).join("")||'<div style="padding:22px 0;text-align:center;color:var(--ti-muted,#647787);font:500 13px \'Space Grotesk\'">Todavía no hay ninguna OC registrada.</div>';
-      var ocList='<section style="'+CARD+';overflow:hidden">'+sectionHead("Órdenes de compra de bolsas",ocBolsas.length+" OC · "+bagProds.map(function(p){return esc(p)+": "+fmt(bolsasRetiradasTotal(p))+" retiradas";}).join(" · "))+'<div style="padding:0 18px 4px">'+ocRows+'</div></section>';
+      /* ---- Bloques de OC agrupados por N°, con consumo real de producción ----
+         Cada bloque = una OC (aunque tenga varios productos). Por producto se
+         muestra: total de la OC, cuánto se retiró a planta, cuánto se ha gastado
+         produciendo, y cuánto queda físicamente. La barra marca el umbral de
+         6.000 bolsas para avisar antes de quedarse sin stock. */
+      function lineaProductoOC(o){
+        var retirado=ocRetiradoTotal(o.id);
+        var pendienteOC=Math.max(0,o.cantidad-retirado);
+        var consumido=bolsasConsumidasOC(o.id,o.producto);
+        var enPlanta=bolsasEnPlantaOC(o.id,o.producto);
+        var bajo=enPlanta>0&&enPlanta<UMBRAL_BOLSAS_BAJO;
+        var vacio=enPlanta<=0&&retirado>0;
+        var col=prodColor(o.producto);
+        var pctCons=retirado>0?Math.min(100,Math.round(consumido/retirado*100)):0;
+        // dónde cae el umbral de 6.000 dentro de la barra (medida sobre lo retirado)
+        var pctUmbral=retirado>0?Math.max(0,Math.min(100,Math.round((retirado-UMBRAL_BOLSAS_BAJO)/retirado*100))):null;
+        var colorEstado=vacio?"var(--ti-danger,#e5484d)":(bajo?"var(--ti-warn,#B26B00)":"var(--ti-ok,#12A150)");
+        var retirosDeEsta=retirosBolsas.filter(function(r){return r.ocId===o.id;})
+          .sort(function(a,b){return (b.fecha||"").localeCompare(a.fecha||"")||((b.ts||0)-(a.ts||0));});
+        var retirosHtml=retirosDeEsta.length?('<div style="margin-top:8px;padding-left:19px">'+retirosDeEsta.map(function(r){
+            return '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;font:500 11px \'IBM Plex Mono\';color:var(--ti-muted,#647787)"><span style="flex:1">retiro '+esc(r.fecha)+(r.notas?(" · "+esc(r.notas)):"")+'</span><span style="color:var(--ti-text,#14202B);font-weight:600">'+fmt(r.cantidad)+'</span><button data-act="delRetiro" data-id="'+r.id+'" title="Eliminar retiro" style="border:0;background:transparent;color:var(--ti-muted,#647787);cursor:pointer;padding:2px">'+IC.trash()+'</button></div>';
+          }).join("")+'</div>'):'<div style="margin-top:6px;padding-left:19px;font:500 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">Sin retiros todavía — nada en planta de esta línea.</div>';
+
+        return '<div style="padding:13px 0;border-top:1px dashed var(--ti-line2,#E8EDF2)">'+
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
+            '<span style="width:9px;height:9px;border-radius:3px;flex:none;background:'+col+'"></span>'+
+            '<span style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B);flex:1;min-width:130px">'+esc(o.producto)+'</span>'+
+            '<span style="font:700 15px \'IBM Plex Mono\';color:'+colorEstado+'">'+fmt(enPlanta)+'</span>'+
+            '<span style="font:600 10px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:var(--ti-muted,#647787)">en planta</span>'+
+            '<button data-act="delOC" data-id="'+o.id+'" title="Eliminar esta línea de la OC" style="border:0;background:transparent;color:var(--ti-muted,#647787);cursor:pointer;padding:4px">'+IC.trash()+'</button>'+
+          '</div>'+
+          (bajo||vacio?('<div style="margin:6px 0 0 19px;font:700 11px \'Space Grotesk\';color:'+colorEstado+'">'+(vacio?"Sin bolsas en planta — hay que retirar":"Quedan menos de "+fmt(UMBRAL_BOLSAS_BAJO)+" bolsas — conviene pedir retiro")+'</div>'):'')+
+          '<div style="margin:8px 0 0 19px;position:relative">'+
+            '<div style="position:relative;height:10px;border-radius:6px;background:var(--ti-surface2,#F3F6F9);overflow:hidden">'+
+              '<div style="height:100%;width:'+pctCons+'%;background:'+col+';border-radius:6px"></div>'+
+            '</div>'+
+            (pctUmbral!=null&&retirado>UMBRAL_BOLSAS_BAJO?('<div title="Umbral: quedan '+fmt(UMBRAL_BOLSAS_BAJO)+' bolsas" style="position:absolute;top:-3px;bottom:-3px;left:'+pctUmbral+'%;width:2px;background:var(--ti-warn,#B26B00)"></div>'):'')+
+          '</div>'+
+          '<div style="margin:6px 0 0 19px;display:flex;gap:14px;flex-wrap:wrap;font:500 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+
+            '<span>OC: <b style="color:var(--ti-text,#14202B)">'+fmt(o.cantidad)+'</b></span>'+
+            '<span>retirado: <b style="color:var(--ti-text,#14202B)">'+fmt(retirado)+'</b></span>'+
+            '<span>consumido produciendo: <b style="color:var(--ti-text,#14202B)">'+fmt(consumido)+'</b></span>'+
+            (pendienteOC>0?('<span>por retirar: <b style="color:var(--ti-accent,#0E8FD6)">'+fmt(pendienteOC)+'</b></span>'):'<span style="color:var(--ti-ok,#12A150);font-weight:600">OC retirada completa</span>')+
+          '</div>'+
+          retirosHtml+
+        '</div>';
+      }
+
+      var grupos=ocsAgrupadas();
+      var ocRows=grupos.map(function(g){
+        var totalOC=g.ocs.reduce(function(a,o){ return a+Number(o.cantidad||0); },0);
+        var totalRet=g.ocs.reduce(function(a,o){ return a+ocRetiradoTotal(o.id); },0);
+        var totalPlanta=g.ocs.reduce(function(a,o){ return a+bolsasEnPlantaOC(o.id,o.producto); },0);
+        var porRetirar=Math.max(0,totalOC-totalRet);
+        var fechas=g.ocs.map(function(o){return o.fecha||"";}).filter(Boolean).sort();
+        var rango=fechas.length?(fechas[0]===fechas[fechas.length-1]?fechas[0]:(fechas[0]+" a "+fechas[fechas.length-1])):"";
+        var alerta=g.ocs.some(function(o){ var e=bolsasEnPlantaOC(o.id,o.producto); return e<UMBRAL_BOLSAS_BAJO; });
+        return '<section style="border:1.5px solid '+(alerta?"var(--ti-warn,#B26B00)":"var(--ti-line,#DCE3EA)")+';border-radius:14px;overflow:hidden;margin-bottom:14px">'+
+          '<div style="padding:13px 16px;background:var(--ti-surface2,#F3F6F9);display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
+            '<div style="min-width:0"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(g.nombre||"OC sin número")+'</div>'+
+            '<div style="font:500 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+esc(rango)+' · '+g.ocs.length+' producto'+(g.ocs.length===1?"":"s")+'</div></div>'+
+            '<div style="margin-left:auto;text-align:right"><div style="font:700 17px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(totalPlanta)+'</div><div style="font:600 10px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:var(--ti-muted,#647787)">bolsas en planta</div></div>'+
+            (porRetirar>0?('<div style="text-align:right;padding-left:14px;border-left:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 15px \'IBM Plex Mono\';color:var(--ti-accent,#0E8FD6)">'+fmt(porRetirar)+'</div><div style="font:600 10px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:var(--ti-muted,#647787)">por retirar</div></div>'):'')+
+          '</div>'+
+          '<div style="padding:2px 16px 14px">'+g.ocs.map(lineaProductoOC).join("")+'</div>'+
+        '</section>';
+      }).join("")||'<div style="padding:26px 0;text-align:center;color:var(--ti-muted,#647787);font:500 13px \'Space Grotesk\'">Todavía no hay ninguna OC registrada.</div>';
+
+      // Aviso de déficit: se produjo más de lo que se ha retirado
+      var deficits=bagProds.map(function(p){ var d=retirosConEstado(p).deficit; return d>0?{p:p,d:d}:null; }).filter(Boolean);
+      var avisoDeficit=deficits.length?('<div style="margin:0 18px 14px;padding:12px 14px;border-radius:12px;background:var(--ti-danger-bg,#fff7f7);border:1.5px solid var(--ti-danger,#e5484d)"><div style="font:700 12.5px \'Space Grotesk\';color:var(--ti-danger,#e5484d)">Se produjo más de lo que se ha retirado</div><div style="margin-top:4px;font:500 12px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+deficits.map(function(x){ return esc(x.p)+": faltan "+fmt(x.d)+" bolsas por registrar como retiro"; }).join(" · ")+'. Puede que falte cargar un retiro, o que la producción tenga mallas de más.</div></div>'):'';
+
+      var resumenBolsas=bagProds.map(function(p){
+        var e=retirosConEstado(p);
+        var planta=e.retiros.reduce(function(a,x){ return a+x.enPlanta; },0);
+        return esc(p)+": "+fmt(planta);
+      }).join(" · ");
+      var ocList='<section style="'+CARD+';overflow:hidden">'+sectionHead("Órdenes de compra de bolsas","En planta hoy — "+resumenBolsas)+avisoDeficit+'<div style="padding:0 18px 4px">'+ocRows+'</div></section>';
 
       /* ---- Malla: rollos + consumo automático ---- */
       var rollosComprados=totalRollosComprados();
@@ -2897,7 +3045,14 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(act==="registroEditarDia"){ var de=btn.getAttribute("data-iso"); state.registroDetalle=null; if(/^\d{4}-\d{2}-\d{2}$/.test(de)){ state.registroIso=de; state.registroMes=false; state.quickEditId=null; state.quickDraft=null; } render(); }
     else if(act==="registroToday"){ state.registroIso=isoDate(new Date()); state.quickEditId=null; render(); }
     else if(act==="comprasTab"){ state.comprasTab=btn.getAttribute("data-tab"); render(); }
-    else if(act==="addOC"){ var cd1=state.compraDraft||{}; if(!cd1.ocCantidad||Number(cd1.ocCantidad)<=0){ alert("Ingresa la cantidad total de la OC."); return; } addOC(cd1.ocProducto,cd1.ocFecha||isoDate(new Date()),cd1.ocCantidad,cd1.ocNotas); state.compraDraft.ocCantidad=""; state.compraDraft.ocNotas=""; render(); }
+    else if(act==="addOC"){
+      var cd1=state.compraDraft||{};
+      if(!cd1.ocCantidad||Number(cd1.ocCantidad)<=0){ alert("Ingresa la cantidad total de la OC."); return; }
+      if(!(cd1.ocNombre||"").trim()){ alert("Ponle un N° de OC (ej. \"OC 16\") — es lo que agrupa varios productos en un mismo bloque."); return; }
+      addOC(cd1.ocProducto,cd1.ocFecha||isoDate(new Date()),cd1.ocCantidad,cd1.ocNotas,cd1.ocNombre);
+      state.compraDraft.ocCantidad=""; state.compraDraft.ocNotas="";  // el N° se conserva para cargar el siguiente producto de la misma OC
+      render();
+    }
     else if(act==="delOC"){ if(confirm("¿Eliminar esta OC y todos sus retiros?")){ deleteOC(btn.getAttribute("data-id")); render(); } }
     else if(act==="addRetiro"){ var cd2=state.compraDraft||{}; if(!cd2.retiroOcId){ alert("Elige a qué OC pertenece este retiro."); return; } if(!cd2.retiroCantidad||Number(cd2.retiroCantidad)<=0){ alert("Ingresa la cantidad retirada."); return; } addRetiro(cd2.retiroOcId,cd2.retiroFecha||isoDate(new Date()),cd2.retiroCantidad,cd2.retiroNotas); state.compraDraft.retiroCantidad=""; state.compraDraft.retiroNotas=""; render(); }
     else if(act==="delRetiro"){ if(confirm("¿Eliminar este retiro?")){ deleteRetiro(btn.getAttribute("data-id")); render(); } }
