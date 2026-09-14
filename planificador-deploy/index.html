@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-10-compras-oc-agrupadas -->
+<!-- BUILD-MARK: 2026-09-14-total-semana-por-persona -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -146,11 +146,11 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-10-compras-oc-agrupadas";
+  var APP_BUILD="2026-09-14-total-semana-por-persona";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
-  var OC_KEY="theice-oc-bolsas-v1", RETIRO_KEY="theice-retiros-bolsas-v1", MALLA_KEY="theice-compras-malla-v1", GUANTES_KEY="theice-compras-guantes-v1", CONTEO_GUANTES_KEY="theice-conteos-guantes-v1";
+  var OC_KEY="theice-oc-bolsas-v1", RETIRO_KEY="theice-retiros-bolsas-v1", MALLA_KEY="theice-compras-malla-v1", GUANTES_KEY="theice-compras-guantes-v1", CONTEO_GUANTES_KEY="theice-conteos-guantes-v1", CONTEO_BOLSAS_KEY="theice-conteos-bolsas-v1";
   var HUBSPOT_FN="/.netlify/functions/hubspot-salidas"; // endpoint de la Netlify Function (Fase 3)
   var HUBSPOT_SYNC_ENABLED=false; // integración en pausa (límite de HubSpot) — Salidas se ingresan a mano por ahora. Cambia a true para reactivar el botón.
   // Grupo A / Grupo B se retiraron del selector (28-ago-2026): ya no se crean turnos
@@ -187,6 +187,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function persistCompraMalla(){ try{ localStorage.setItem(MALLA_KEY,JSON.stringify(comprasMalla)); }catch(e){} }
   function persistCompraGuantes(){ try{ localStorage.setItem(GUANTES_KEY,JSON.stringify(comprasGuantes)); }catch(e){} }
   function persistConteoGuantes(){ try{ localStorage.setItem(CONTEO_GUANTES_KEY,JSON.stringify(conteosGuantes)); }catch(e){} }
+  function persistConteoBolsas(){ try{ localStorage.setItem(CONTEO_BOLSAS_KEY,JSON.stringify(conteosBolsas)); }catch(e){} }
 
   function addOC(producto,fecha,cantidad,notas,nombre){ var e={id:uid(),nombre:(nombre||"").trim(),producto:producto,fecha:fecha,cantidad:Number(cantidad||0),notas:notas||"",ts:state.nowMs}; ocBolsas.push(e); persistOC(); cloudSet('ocBolsas',e); return e; }
   function deleteOC(id){ var rel=retirosBolsas.filter(function(r){return r.ocId===id;}); rel.forEach(function(r){ cloudDel('retirosBolsas',r.id); }); retirosBolsas=retirosBolsas.filter(function(r){return r.ocId!==id;}); ocBolsas=ocBolsas.filter(function(o){return o.id!==id;}); persistOC(); persistRetiros(); cloudDel('ocBolsas',id); }
@@ -265,6 +266,17 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function deleteCompraGuantes(id){ comprasGuantes=comprasGuantes.filter(function(c){return c.id!==id;}); persistCompraGuantes(); cloudDel('comprasGuantes',id); }
   function totalCajasGuantesCompradas(){ return comprasGuantes.reduce(function(a,c){return a+Number(c.cajas||0);},0); }
   function addConteoGuantes(fecha,unidades,notas){ var e={id:uid(),fecha:fecha,unidades:Number(unidades||0),notas:notas||"",ts:state.nowMs}; conteosGuantes.push(e); persistConteoGuantes(); cloudSet('conteosGuantes',e); return e; }
+  /* Conteo FÍSICO de bolsas: sin esto la merma no se puede medir (comparar el
+     stock deducido contra sí mismo siempre da cero). Se cuenta lo que hay de
+     verdad en bodega y la diferencia con lo que el sistema cree que debería
+     haber es la merma real (10-sep-2026). */
+  function addConteoBolsas(fecha,producto,unidades,notas){ var e={id:uid(),fecha:fecha,producto:producto,unidades:Number(unidades||0),notas:notas||"",ts:state.nowMs}; conteosBolsas.push(e); persistConteoBolsas(); cloudSet('conteosBolsas',e); return e; }
+  function deleteConteoBolsas(id){ conteosBolsas=conteosBolsas.filter(function(c){return c.id!==id;}); persistConteoBolsas(); cloudDel('conteosBolsas',id); }
+  function ultimoConteoBolsas(producto){
+    var l=conteosBolsas.filter(function(c){return c.producto===producto;})
+      .sort(function(a,b){ return (b.fecha||"").localeCompare(a.fecha||"")||((b.ts||0)-(a.ts||0)); });
+    return l.length?l[0]:null;
+  }
   function deleteConteoGuantes(id){ conteosGuantes=conteosGuantes.filter(function(c){return c.id!==id;}); persistConteoGuantes(); cloudDel('conteosGuantes',id); }
   function metaEntryFor(iso,product){ for(var i=0;i<metas.length;i++){ if(metas[i].date===iso&&metas[i].product===product) return metas[i]; } return null; }
   function metaCommit(iso,product,kgN,meshN){
@@ -614,6 +626,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function loadCompraMalla(){ try{ var s=localStorage.getItem(MALLA_KEY); if(s) return JSON.parse(s); }catch(e){} return []; }
   function loadCompraGuantes(){ try{ var s=localStorage.getItem(GUANTES_KEY); if(s) return JSON.parse(s); }catch(e){} return []; }
   function loadConteoGuantes(){ try{ var s=localStorage.getItem(CONTEO_GUANTES_KEY); if(s) return JSON.parse(s); }catch(e){} return []; }
+  function loadConteoBolsas(){ try{ var s=localStorage.getItem(CONTEO_BOLSAS_KEY); if(s) return JSON.parse(s); }catch(e){} return []; }
   function persistSal(){ try{ localStorage.setItem(SAL_KEY,JSON.stringify(salidas)); }catch(e){} }
   function normalizeCfg(c){
     if(!c) c={};
@@ -829,7 +842,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   }
 
   /* ============ state ============ */
-  var genWeeks=loadGen(), inventory=loadInv(), salidas=loadSal(), metas=loadMetas(), config=loadCfg(), ocBolsas=loadOC(), retirosBolsas=loadRetiros(), comprasMalla=loadCompraMalla(), comprasGuantes=loadCompraGuantes(), conteosGuantes=loadConteoGuantes();
+  var genWeeks=loadGen(), inventory=loadInv(), salidas=loadSal(), metas=loadMetas(), config=loadCfg(), ocBolsas=loadOC(), retirosBolsas=loadRetiros(), comprasMalla=loadCompraMalla(), comprasGuantes=loadCompraGuantes(), conteosGuantes=loadConteoGuantes(), conteosBolsas=loadConteoBolsas();
   var state={
     view:"calendario",
     calMode:"semana", monthMs:0,
@@ -1981,6 +1994,26 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       var rosterFullExt=rosterFull.filter(function(n){ return (dbsAtt.ext||[]).indexOf(n)>=0; });
       var rosterFullPM=rosterFull.filter(function(n){ return (dbsAtt.pm||[]).indexOf(n)>=0; });
       var rosterFullSinTurno=rosterFull.filter(function(n){ return rosterFullAM.indexOf(n)<0&&rosterFullExt.indexOf(n)<0&&rosterFullPM.indexOf(n)<0; });
+      /* Totales de la semana por persona, para la última columna de cada fila.
+         El bono usa el monto puesto a mano si existe, y el automático si no —
+         igual que el número que se ve en cada celda del día. */
+      function bonoSemanaDe(name){
+        return isoList.reduce(function(a,iso){
+          var key=extraHoursKey(name,iso);
+          var manual=config.bonoManualByPersonDay&&config.bonoManualByPersonDay[key];
+          var v=(manual!=null&&manual!==undefined)?manual:bonoDiaFor(iso,name);
+          return a+(v?Number(v):0);
+        },0);
+      }
+      function horasSemanaDe(name){
+        return isoList.reduce(function(a,iso){
+          var v=(config.extraHoursByPersonDay&&config.extraHoursByPersonDay[extraHoursKey(name,iso)])||0;
+          return a+Number(v||0);
+        },0);
+      }
+      function pagoSemanaDe(name){
+        return isoList.reduce(function(a,iso){ var p=pagoDiarioFor(iso,name); return a+(p?Number(p):0); },0);
+      }
       function attTableSection(titulo,names,esParttime){
         if(!names.length) return "";
         var rowsHtml=names.map(function(name){
@@ -1990,7 +2023,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
           var r1='<tr><td rowspan="'+rowspan+'" style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B);vertical-align:middle;border-right:1px solid var(--ti-line2,#E8EDF2)">'+esc(name)+'</td>'
             +'<td style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);white-space:nowrap;padding-right:10px">Asistencia</td>'
             +cells.map(function(c){ return '<td style="padding:5px 6px">'+inasistBadge(c)+'</td>'; }).join("")
-            +'<td rowspan="'+rowspan+'" class="ti-num" style="vertical-align:middle;font-weight:700;color:'+(faltas>0?"var(--ti-danger,#e5484d)":"var(--ti-muted,#647787)")+'">'+faltas+'</td></tr>';
+            +'<td class="ti-num" style="font-weight:700;color:'+(faltas>0?"var(--ti-danger,#e5484d)":"var(--ti-muted,#647787)")+'">'+faltas+(faltas===1?" falta":" faltas")+'</td></tr>';
           var r2='<tr style="border-top:1px dashed var(--ti-line2,#E8EDF2)"><td style="font:600 10px \'Space Grotesk\';color:var(--ti-warn,#B26B00);white-space:nowrap;padding-right:10px">Bono día</td>'
             +isoList.map(function(iso){
               var key=extraHoursKey(name,iso);
@@ -2003,16 +2036,21 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
               tip+=esManual?' · monto puesto a mano':(auto?' · calculado automático':'');
               return '<td style="padding:4px 5px" title="'+esc(tip)+'"><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(valorMostrado)+'" placeholder="'+(auto?("$"+fmt(auto)):"$0")+'" data-bono-key="'+esc(key)+'" style="width:100%;text-align:center;padding:5px 3px;font-size:11.5px;color:'+(esManual?"var(--ti-accent,#0E8FD6)":"var(--ti-warn,#B26B00)")+';font-weight:600"></td>';
             }).join("")
+            // Total de bono de la semana de esa persona: suma los 7 días, usando el
+            // monto puesto a mano cuando existe y el automático cuando no.
+            +'<td class="ti-num" style="font:700 13px \'IBM Plex Mono\';color:'+(bonoSemanaDe(name)>0?"var(--ti-warn,#B26B00)":"var(--ti-muted,#647787)")+';background:var(--ti-surface2,#F3F6F9)">'+(bonoSemanaDe(name)>0?("$"+fmt(bonoSemanaDe(name))):"—")+'</td>'
           +'</tr>';
           var r3='<tr style="border-top:1px dashed var(--ti-line2,#E8EDF2)"><td style="font:600 10px \'Space Grotesk\';color:#7C5CBF;white-space:nowrap;padding-right:10px">Horas adic.</td>'
             +isoList.map(function(iso){ var key=extraHoursKey(name,iso); var v=(config.extraHoursByPersonDay&&config.extraHoursByPersonDay[key])||""; return '<td style="padding:4px 5px"><input type="number" min="0" step="1000" inputmode="numeric" value="'+esc(v)+'" placeholder="$0" data-extrahours-key="'+esc(key)+'" style="width:100%;text-align:center;padding:5px 3px;font-size:11.5px"></td>'; }).join("")
+            +'<td class="ti-num" style="font:700 13px \'IBM Plex Mono\';color:'+(horasSemanaDe(name)>0?"#7C5CBF":"var(--ti-muted,#647787)")+';background:var(--ti-surface2,#F3F6F9)">'+(horasSemanaDe(name)>0?("$"+fmt(horasSemanaDe(name))):"—")+'</td>'
           +'</tr>';
           var r4=esParttime?('<tr style="border-top:1px dashed var(--ti-line2,#E8EDF2)"><td style="font:600 10px \'Space Grotesk\';color:var(--ti-accent,#0E8FD6);white-space:nowrap;padding-right:10px">Pago diario</td>'
             +isoList.map(function(iso){ var p=pagoDiarioFor(iso,name); return '<td class="ti-num" style="padding:5px 6px;font:600 12px \'IBM Plex Mono\';color:'+(p?"var(--ti-accent,#0E8FD6)":"var(--ti-muted,#647787)")+'">'+(p?("$"+fmt(p)):"—")+'</td>'; }).join("")
+            +'<td class="ti-num" style="font:700 13px \'IBM Plex Mono\';color:'+(pagoSemanaDe(name)>0?"var(--ti-accent,#0E8FD6)":"var(--ti-muted,#647787)")+';background:var(--ti-surface2,#F3F6F9)">'+(pagoSemanaDe(name)>0?("$"+fmt(pagoSemanaDe(name))):"—")+'</td>'
           +'</tr>'):'';
           return r1+r2+r3+r4;
         }).join("");
-        var head='<tr><th>Persona</th><th></th>'+DAYS_SHORT.map(function(l){ return '<th style="text-align:center">'+l+'</th>'; }).join("")+'<th style="text-align:center">Inasistencias</th></tr>';
+        var head='<tr><th>Persona</th><th></th>'+DAYS_SHORT.map(function(l){ return '<th style="text-align:center">'+l+'</th>'; }).join("")+'<th style="text-align:center">Total semana</th></tr>';
         return '<div style="margin-top:'+(esParttime?"18px":"0")+'"><div style="padding:12px 18px 8px;font:700 12.5px \'Space Grotesk\';letter-spacing:.02em;color:var(--ti-text,#14202B);text-transform:uppercase">'+titulo+'</div><div style="overflow:auto"><table class="ti-tbl"><thead>'+head+'</thead><tbody>'+rowsHtml+'</tbody></table></div></div>';
       }
       var inasistTable='<section style="'+CARD+';overflow:hidden"><div style="padding:15px 18px;border-bottom:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">Inasistencias de la semana</div><p style="margin:5px 0 0;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">Si una persona no aparece en ningún turno programado, o queda marcada "Ausente" al cerrar su turno, cuenta como inasistencia. "Licencia" no cuenta como falta (se sigue pagando). Los días sin ningún turno se muestran como descanso. El bono día se calcula solo con la producción real del turno cerrado; el número naranja es el automático, y puedes escribir encima para corregirlo a mano (queda en azul). "Horas adic." es un monto manual por persona y por día.</p></div>'
@@ -2182,7 +2220,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         retiroOcId:"", retiroFecha:todayIso, retiroCantidad:"", retiroNotas:"",
         mallaFecha:todayIso, mallaRollos:"", mallaNotas:"",
         guantesFecha:todayIso, guantesCajas:"", guantesNotas:"",
-        conteoFecha:todayIso, conteoUnidades:"", conteoNotas:""
+        conteoFecha:todayIso, conteoUnidades:"", conteoNotas:"",
+        cbProducto:activeProducts().filter(function(p){return bagsPerMalla(p)>0;})[0]||"Original 3 kg", cbFecha:todayIso, cbUnidades:"", cbNotas:""
       });
 
       /* ---- Bolsas: OC + retiros ---- */
@@ -2254,6 +2293,17 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         '</div>';
       }
 
+      var conteoBolsasForm='<section style="'+CARD+';overflow:hidden">'+sectionHead("Conteo físico de bolsas","Cuenta lo que hay de verdad en bodega — sin esto no se puede medir la merma")+
+        '<div style="padding:16px 18px;display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:12px;align-items:end">'+
+        '<div><label style="display:block;font:600 11px \'Space Grotesk\';color:var(--ti-muted,#647787);margin-bottom:5px">Producto</label><select data-compra-f="cbProducto">'+bagProds.map(function(p){return '<option value="'+esc(p)+'"'+(cd.cbProducto===p?" selected":"")+'>'+esc(p)+'</option>';}).join("")+'</select></div>'+
+        '<div><label style="display:block;font:600 11px \'Space Grotesk\';color:var(--ti-muted,#647787);margin-bottom:5px">Fecha del conteo</label><input type="date" value="'+esc(cd.cbFecha||todayIso)+'" data-compra-f="cbFecha"></div>'+
+        '<div><label style="display:block;font:600 11px \'Space Grotesk\';color:var(--ti-muted,#647787);margin-bottom:5px">Bolsas contadas</label><input type="number" min="0" step="1" inputmode="numeric" placeholder="ej. 1450" value="'+esc(cd.cbUnidades||"")+'" data-compra-f="cbUnidades"></div>'+
+        '</div><div style="padding:0 18px 16px;display:flex;gap:10px;align-items:end"><input type="text" placeholder="Notas (opcional)" value="'+esc(cd.cbNotas||"")+'" data-compra-f="cbNotas" style="flex:1"><button class="ti-primary ti-press" data-act="addConteoBolsas" style="height:40px;padding:0 18px;border-radius:11px;background:var(--ti-accent,#0E8FD6);color:var(--ti-accent-ink,#fff);font:600 13px \'Space Grotesk\';white-space:nowrap">Registrar conteo</button></div>'+
+        (conteosBolsas.length?('<div style="padding:0 18px 16px">'+conteosBolsas.slice().sort(function(a,b){return (b.fecha||"").localeCompare(a.fecha||"");}).slice(0,6).map(function(c){
+          return '<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-top:1px dashed var(--ti-line2,#E8EDF2);font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)"><span style="width:9px;height:9px;border-radius:3px;flex:none;background:'+prodColor(c.producto)+'"></span><span style="flex:1">'+esc(c.fecha)+' · '+esc(c.producto)+(c.notas?(" · "+esc(c.notas)):"")+'</span><span style="font:700 13px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(c.unidades)+'</span><button data-act="delConteoBolsas" data-id="'+c.id+'" title="Eliminar" style="border:0;background:transparent;color:var(--ti-muted,#647787);cursor:pointer;padding:2px">'+IC.trash()+'</button></div>';
+        }).join("")+'</div>'):'')+
+        '</section>';
+
       var grupos=ocsAgrupadas();
       var ocRows=grupos.map(function(g){
         var totalOC=g.ocs.reduce(function(a,o){ return a+Number(o.cantidad||0); },0);
@@ -2263,9 +2313,13 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var fechas=g.ocs.map(function(o){return o.fecha||"";}).filter(Boolean).sort();
         var rango=fechas.length?(fechas[0]===fechas[fechas.length-1]?fechas[0]:(fechas[0]+" a "+fechas[fechas.length-1])):"";
         var alerta=g.ocs.some(function(o){ var e=bolsasEnPlantaOC(o.id,o.producto); return e<UMBRAL_BOLSAS_BAJO; });
-        return '<section style="border:1.5px solid '+(alerta?"var(--ti-warn,#B26B00)":"var(--ti-line,#DCE3EA)")+';border-radius:14px;overflow:hidden;margin-bottom:14px">'+
-          '<div style="padding:13px 16px;background:var(--ti-surface2,#F3F6F9);display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+
-            '<div style="min-width:0"><div style="font:700 15px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(g.nombre||"OC sin número")+'</div>'+
+        // Franja de color propia por OC, para distinguir un bloque de otro de un vistazo
+        var PALETA=["#0E8FD6","#7C5CE6","#12A150","#B26B00","#D9488B","#0FA3A3"];
+        var idxColor=Math.abs((g.nombre||"").split("").reduce(function(a,c){ return a+c.charCodeAt(0); },0))%PALETA.length;
+        var colorOC=alerta?"var(--ti-warn,#B26B00)":PALETA[idxColor];
+        return '<section style="border:1.5px solid '+(alerta?"var(--ti-warn,#B26B00)":"var(--ti-line,#DCE3EA)")+';border-left:5px solid '+colorOC+';border-radius:14px;overflow:hidden;margin-bottom:18px;box-shadow:0 1px 3px rgba(20,32,43,.06)">'+
+          '<div style="padding:13px 16px;background:var(--ti-surface2,#F3F6F9);display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--ti-line,#DCE3EA)">'+
+            '<div style="min-width:0"><div style="font:700 16px \'Space Grotesk\';color:'+colorOC+'">'+esc(g.nombre||"OC sin número")+'</div>'+
             '<div style="font:500 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+esc(rango)+' · '+g.ocs.length+' producto'+(g.ocs.length===1?"":"s")+'</div></div>'+
             '<div style="margin-left:auto;text-align:right"><div style="font:700 17px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(totalPlanta)+'</div><div style="font:600 10px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:var(--ti-muted,#647787)">bolsas en planta</div></div>'+
             (porRetirar>0?('<div style="text-align:right;padding-left:14px;border-left:1px solid var(--ti-line,#DCE3EA)"><div style="font:700 15px \'IBM Plex Mono\';color:var(--ti-accent,#0E8FD6)">'+fmt(porRetirar)+'</div><div style="font:600 10px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:var(--ti-muted,#647787)">por retirar</div></div>'):'')+
@@ -2340,7 +2394,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       var tabBtn=function(k,l){ var on=(state.comprasTab||"bolsas")===k; return '<button class="ti-hbtn ti-press" data-act="comprasTab" data-tab="'+k+'" aria-pressed="'+on+'" style="height:36px;padding:0 15px;border-radius:10px;font:600 12.5px \'Space Grotesk\';background:'+(on?"var(--ti-surface,#fff)":"transparent")+';color:'+(on?"var(--ti-text,#14202B)":"var(--ti-muted,#647787)")+';box-shadow:'+(on?"0 2px 8px rgba(20,32,43,.12)":"none")+'">'+l+'</button>'; };
       var comprasTabs='<div style="display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line,#DCE3EA);width:fit-content;margin-bottom:16px">'+tabBtn("bolsas","Bolsas")+tabBtn("malla","Malla")+tabBtn("guantes","Guantes")+'</div>';
       var activeTab=state.comprasTab||"bolsas";
-      var tabContent=activeTab==="bolsas"?(ocForm+retiroForm+ocList):(activeTab==="malla"?(mallaForm+mallaStats+mallaList):(guantesForm+conteoForm+guantesStats+conteoList+comprasGuantesList));
+      var tabContent=activeTab==="bolsas"?(ocForm+retiroForm+conteoBolsasForm+ocList):(activeTab==="malla"?(mallaForm+mallaStats+mallaList):(guantesForm+conteoForm+guantesStats+conteoList+comprasGuantesList));
       comprasBody=comprasTabs+tabContent;
     }
 
@@ -2558,9 +2612,81 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var rows=sorted.map(function(s){ var wd=parseIso(s.date).getDay(); wd=(wd+6)%7; var mk=metaKg(s); var realCell,varCell,cpkCell; if(s.closed){ realCell=fmt(s.kgReal||0)+" kg"; var diff=(s.kgReal||0)-mk; var col=diff>=0?"var(--ti-ok,#12A150)":"var(--ti-danger,#e5484d)"; varCell=diff===0?'<span style="color:var(--ti-muted,#647787)">En meta</span>':'<span style="color:'+col+';font-weight:600">'+(diff>0?"+":"")+fmt(diff)+' kg</span>'; cpkCell=(s.kgReal>0)?("$"+fmt(Math.round(laborCost(s)/s.kgReal))):'<span style="color:var(--ti-muted,#647787)">—</span>'; } else { realCell='<span style="color:var(--ti-muted,#647787)">—</span>'; varCell='<span style="color:var(--ti-muted,#647787)">—</span>'; cpkCell='<span style="color:var(--ti-muted,#647787)">—</span>'; } return '<tr class="ti-row" data-act="editShift" data-id="'+s.id+'" style="cursor:pointer"><td><div style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(s.title)+'</div><div style="font:500 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+esc(productLabel(s))+'</div></td><td style="white-space:nowrap">'+DAYS_SHORT[wd]+' '+parseIso(s.date).getDate()+'</td><td class="ti-num">'+esc(timeLabel(s))+'</td><td class="ti-num">'+pcount(s)+'</td><td class="ti-num">'+fmt(mk)+' kg</td><td class="ti-num">'+realCell+'</td><td class="ti-num">'+varCell+'</td><td class="ti-num">$'+fmt(laborCost(s))+'</td><td class="ti-num">'+cpkCell+'</td><td>'+estadoPill(s)+'</td></tr>'; }).join("");
         var totalRow='<tr style="background:var(--ti-surface2,#F3F6F9)"><td style="font-weight:700">Total semana</td><td></td><td></td><td class="ti-num" style="font-weight:700">'+vis.reduce(function(a,s){return a+pcount(s);},0)+'</td><td class="ti-num" style="font-weight:700">'+fmt(mKg)+' kg</td><td class="ti-num" style="font-weight:700">'+(closedVis.length?fmt(rKg)+" kg":"—")+'</td><td></td><td class="ti-num" style="font-weight:700">$'+fmt(cost)+'</td><td class="ti-num" style="font-weight:700">'+(realCPK!=null?"$"+fmt(realCPK):"—")+'</td><td></td></tr>';
         var cumpl_tbl='<section style="'+CARD+';overflow:hidden">'+sectionHead("Cumplimiento por turno","Meta vs. real de la semana · haz clic para editar")+'<div style="overflow:auto"><table class="ti-tbl"><thead><tr><th>Turno</th><th>Día</th><th style="text-align:right">Horario</th><th style="text-align:right">Pers.</th><th style="text-align:right">Kg meta</th><th style="text-align:right">Kg real</th><th style="text-align:right">Variación</th><th style="text-align:right">Costo</th><th style="text-align:right">Costo/kg</th><th>Estado</th></tr></thead><tbody>'+rows+totalRow+'</tbody></table></div></section>';
-        var bagUsed={}; closedVis.forEach(function(s){ (s.products||[]).forEach(function(p,i){ var rb=s.realByProduct&&s.realByProduct[i]; var mesh=rb?Number(rb.mesh||0):0; var b=bagsPerMalla(p.product); if(b>0&&mesh>0){ bagUsed[p.product]=(bagUsed[p.product]||0)+mesh*b; } }); });
-        var bagRows=activeProducts().filter(function(p){ return bagsPerMalla(p)>0; }).map(function(p){ var bought=Math.round(bolsasRetiradasTotal(p)); var used=Math.round(bagUsed[p]||0); var rem=bought-used; var pct=bought>0?Math.round(used/bought*100):0; return '<tr><td><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:9px;height:9px;border-radius:3px;background:'+prodColor(p)+'"></span>'+esc(p)+'</span></td><td class="ti-num">'+fmt(bought)+'</td><td class="ti-num">'+fmt(used)+'</td><td class="ti-num" style="color:'+(rem<0?"var(--ti-danger,#e5484d)":(bought>0&&rem<bought*0.15?"var(--ti-warn,#B26B00)":"var(--ti-text,#14202B)"))+';font-weight:600">'+fmt(rem)+'</td><td style="width:30%"><div style="display:flex;align-items:center;gap:10px"><div style="flex:1;height:8px;border-radius:6px;background:var(--ti-surface2,#F3F6F9);overflow:hidden"><div style="height:100%;width:'+Math.min(100,pct)+'%;background:'+prodColor(p)+';border-radius:6px"></div></div><span class="ti-num" style="width:44px;color:var(--ti-muted,#647787)">'+pct+'%</span></div></td></tr>'; }).join("");
-        var bagReport='<section style="'+CARD+';overflow:hidden">'+sectionHead("Stock de bolsas","Retiradas de OC (histórico) − usadas por producción del rango = restantes · gestiona las OCs en Compras")+'<div style="overflow:auto"><table class="ti-tbl"><thead><tr><th>Producto</th><th style="text-align:right">Retiradas</th><th style="text-align:right">Usadas</th><th style="text-align:right">Restantes</th><th>Consumo</th></tr></thead><tbody>'+bagRows+'</tbody></table></div></section>';
+        /* ---- Bolsas: compras vs uso real vs merma ----
+           Tres números por producto, y la merma sale de la diferencia entre las
+           bolsas que se gastaron de verdad (retirado − lo que queda en planta) y
+           las que la producción dice que debieron gastarse (mallas × bolsas/malla).
+           Si se gastó MÁS de lo teórico, esa diferencia es merma: bolsas rotas,
+           mal selladas, perdidas. Si se gastó menos, sobra stock sin explicar y
+           normalmente significa que falta registrar producción o un retiro. */
+        var bagUsedRango={};
+        closedVis.forEach(function(s){ (s.products||[]).forEach(function(p,i){ var rb=s.realByProduct&&s.realByProduct[i]; var mesh=rb?Number(rb.mesh||0):0; var b=bagsPerMalla(p.product); if(b>0&&mesh>0){ bagUsedRango[p.product]=(bagUsedRango[p.product]||0)+mesh*b; } }); });
+
+        var bagProdsRep=activeProducts().filter(function(p){ return bagsPerMalla(p)>0; });
+        var totComprado=0,totRetirado=0,totPlanta=0,totTeorico=0;
+        var bagRows=bagProdsRep.map(function(p){
+          var comprado=ocBolsas.filter(function(o){return o.producto===p;}).reduce(function(a,o){ return a+Number(o.cantidad||0); },0);
+          var retirado=Math.round(bolsasRetiradasTotal(p));
+          var est=retirosConEstado(p);
+          var enPlanta=est.retiros.reduce(function(a,x){ return a+x.enPlanta; },0);
+          var usadoReal=retirado-enPlanta;              // lo que salió de bodega de verdad
+          var teorico=Math.round(bagUsedRango[p]||0);   // lo que la producción dice que debió gastar
+          var porRetirar=Math.max(0,comprado-retirado);
+          totComprado+=comprado; totRetirado+=retirado; totPlanta+=enPlanta; totTeorico+=teorico;
+          var bajo=enPlanta>0&&enPlanta<UMBRAL_BOLSAS_BAJO;
+          var colPlanta=enPlanta<=0?"var(--ti-danger,#e5484d)":(bajo?"var(--ti-warn,#B26B00)":"var(--ti-text,#14202B)");
+          return '<tr>'+
+            '<td><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:9px;height:9px;border-radius:3px;background:'+prodColor(p)+'"></span>'+esc(p)+'</span></td>'+
+            '<td class="ti-num">'+fmt(comprado)+'</td>'+
+            '<td class="ti-num">'+fmt(retirado)+'</td>'+
+            '<td class="ti-num" style="color:var(--ti-accent,#0E8FD6)">'+fmt(porRetirar)+'</td>'+
+            '<td class="ti-num">'+fmt(teorico)+'</td>'+
+            '<td class="ti-num" style="color:'+colPlanta+';font-weight:600">'+fmt(enPlanta)+'</td>'+
+          '</tr>';
+        }).join("")||'<tr><td colspan="6" style="text-align:center;color:var(--ti-muted,#647787);padding:22px">Sin OCs registradas todavía — cárgalas en Compras.</td></tr>';
+        var bagTotal=bagProdsRep.length?('<tr style="background:var(--ti-surface2,#F3F6F9)"><td style="font-weight:700">Total</td><td class="ti-num" style="font-weight:700">'+fmt(totComprado)+'</td><td class="ti-num" style="font-weight:700">'+fmt(totRetirado)+'</td><td class="ti-num" style="font-weight:700">'+fmt(Math.max(0,totComprado-totRetirado))+'</td><td class="ti-num" style="font-weight:700">'+fmt(totTeorico)+'</td><td class="ti-num" style="font-weight:700">'+fmt(totPlanta)+'</td></tr>'):'';
+        var bagReport='<section style="'+CARD+';overflow:hidden">'+sectionHead("Bolsas · compras vs consumo","Comprado en OC → retirado a planta → gastado por producción → lo que queda")+'<div style="overflow:auto"><table class="ti-tbl"><thead><tr><th>Producto</th><th style="text-align:right">Comprado (OC)</th><th style="text-align:right">Retirado</th><th style="text-align:right">Por retirar</th><th style="text-align:right">Usado producción</th><th style="text-align:right">En planta</th></tr></thead><tbody>'+bagRows+bagTotal+'</tbody></table></div></section>';
+
+        /* ---- Merma de bolsas: sistema vs conteo FÍSICO ----
+           No se puede medir merma comparando el stock deducido contra la misma
+           producción que lo dedujo: eso siempre da cero (era un error del primer
+           intento, 10-sep-2026). La única forma honesta es contra un conteo físico
+           real de bodega. Sin conteo, se dice que falta el dato — no se inventa. */
+        var mermaRows=bagProdsRep.map(function(p){
+          var conteo=ultimoConteoBolsas(p);
+          var est=retirosConEstado(p);
+          var enPlantaSistema=est.retiros.reduce(function(a,x){ return a+x.enPlanta; },0);
+          if(!conteo){
+            return '<tr>'+
+              '<td><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:9px;height:9px;border-radius:3px;background:'+prodColor(p)+'"></span>'+esc(p)+'</span></td>'+
+              '<td class="ti-num">'+fmt(enPlantaSistema)+'</td>'+
+              '<td class="ti-num" style="color:var(--ti-muted,#647787)">sin conteo</td>'+
+              '<td class="ti-num" style="color:var(--ti-muted,#647787)">—</td>'+
+              '<td class="ti-num" style="color:var(--ti-muted,#647787)">—</td>'+
+            '</tr>';
+          }
+          var fisico=Number(conteo.unidades||0);
+          var merma=enPlantaSistema-fisico;      // sistema dice más de lo que hay = se perdieron
+          var pct=enPlantaSistema>0?(merma/enPlantaSistema*100):0;
+          var col=Math.abs(merma)<1?"var(--ti-ok,#12A150)":(merma>0?"var(--ti-danger,#e5484d)":"var(--ti-warn,#B26B00)");
+          var texto=Math.abs(merma)<1?"Cuadra":(merma>0?("faltan "+fmt(merma)):("sobran "+fmt(-merma)));
+          return '<tr>'+
+            '<td><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:9px;height:9px;border-radius:3px;background:'+prodColor(p)+'"></span>'+esc(p)+'</span></td>'+
+            '<td class="ti-num">'+fmt(enPlantaSistema)+'</td>'+
+            '<td class="ti-num">'+fmt(fisico)+'<div style="font:500 10px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+esc(conteo.fecha)+'</div></td>'+
+            '<td class="ti-num" style="color:'+col+';font-weight:600">'+texto+'</td>'+
+            '<td class="ti-num" style="color:'+col+'">'+(enPlantaSistema>0?(fmt1(pct)+"%"):"—")+'</td>'+
+          '</tr>';
+        }).join("");
+        var hayConteos=conteosBolsas.length>0;
+        var mermaReport='<section style="'+CARD+';overflow:hidden">'+sectionHead("Merma de bolsas","Lo que el sistema calcula que debería haber en planta, contra el último conteo físico real")+
+          '<div style="padding:0 18px 12px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+
+          (hayConteos
+            ? 'Si el conteo físico da <b>menos</b> que el sistema, esas bolsas se perdieron: rotas, mal selladas, mal contadas al retirar. Si da <b>más</b>, normalmente falta registrar producción o sobra un retiro mal cargado.'
+            : 'Todavía no hay ningún conteo físico. La merma <b>no se puede calcular</b> sin él: comparar el stock del sistema contra la misma producción que lo dedujo siempre daría cero. Registra un conteo en <b>Compras → Conteo físico de bolsas</b> y esta tabla empieza a tener sentido.')+
+          '</div>'+
+          '<div style="overflow:auto"><table class="ti-tbl"><thead><tr><th>Producto</th><th style="text-align:right">Sistema dice</th><th style="text-align:right">Conteo físico</th><th style="text-align:right">Diferencia</th><th style="text-align:right">% merma</th></tr></thead><tbody>'+mermaRows+'</tbody></table></div></section>';
+        bagReport=bagReport+mermaReport;
 
         /* ---- Malla y Guantes: mismo rango de fechas (rf–rt) que el resto de Reportes ---- */
         var mallaRolCompradosRango=comprasMalla.filter(function(c){ return c.fecha>=rf&&c.fecha<=rt; }).reduce(function(a,c){return a+Number(c.rollos||0);},0);
@@ -3045,6 +3171,13 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(act==="registroEditarDia"){ var de=btn.getAttribute("data-iso"); state.registroDetalle=null; if(/^\d{4}-\d{2}-\d{2}$/.test(de)){ state.registroIso=de; state.registroMes=false; state.quickEditId=null; state.quickDraft=null; } render(); }
     else if(act==="registroToday"){ state.registroIso=isoDate(new Date()); state.quickEditId=null; render(); }
     else if(act==="comprasTab"){ state.comprasTab=btn.getAttribute("data-tab"); render(); }
+    else if(act==="addConteoBolsas"){
+      var cb=state.compraDraft||{};
+      if(!cb.cbUnidades||Number(cb.cbUnidades)<0){ alert("Ingresa cuántas bolsas contaste."); return; }
+      addConteoBolsas(cb.cbFecha||isoDate(new Date()), cb.cbProducto||activeProducts().filter(function(p){return bagsPerMalla(p)>0;})[0], cb.cbUnidades, cb.cbNotas);
+      state.compraDraft.cbUnidades=""; state.compraDraft.cbNotas=""; render();
+    }
+    else if(act==="delConteoBolsas"){ if(confirm("¿Eliminar este conteo?")){ deleteConteoBolsas(btn.getAttribute("data-id")); render(); } }
     else if(act==="addOC"){
       var cd1=state.compraDraft||{};
       if(!cd1.ocCantidad||Number(cd1.ocCantidad)<=0){ alert("Ingresa la cantidad total de la OC."); return; }
@@ -3150,11 +3283,12 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     else if(kind==="comprasMalla"){ if((!items||!items.length)&&comprasMalla.length) return; comprasMalla=items||[]; }
     else if(kind==="comprasGuantes"){ if((!items||!items.length)&&comprasGuantes.length) return; comprasGuantes=items||[]; }
     else if(kind==="conteosGuantes"){ if((!items||!items.length)&&conteosGuantes.length) return; conteosGuantes=items||[]; }
+    else if(kind==="conteosBolsas"){ if((!items||!items.length)&&conteosBolsas.length) return; conteosBolsas=items||[]; }
     else if(kind==="config"){ if(items){ config=normalizeCfg(items); } }
     else if(kind==="gen"){ genWeeks=items||genWeeks; return; }
     render();
   };
-  window.tiLocalData=function(kind){ if(kind==="shifts")return state.shifts; if(kind==="inventory")return inventory; if(kind==="salidas")return salidas; if(kind==="metas")return metas; if(kind==="ocBolsas")return ocBolsas; if(kind==="retirosBolsas")return retirosBolsas; if(kind==="comprasMalla")return comprasMalla; if(kind==="comprasGuantes")return comprasGuantes; if(kind==="conteosGuantes")return conteosGuantes; if(kind==="config")return config; if(kind==="gen")return genWeeks; return null; };
+  window.tiLocalData=function(kind){ if(kind==="shifts")return state.shifts; if(kind==="inventory")return inventory; if(kind==="salidas")return salidas; if(kind==="metas")return metas; if(kind==="ocBolsas")return ocBolsas; if(kind==="retirosBolsas")return retirosBolsas; if(kind==="comprasMalla")return comprasMalla; if(kind==="comprasGuantes")return comprasGuantes; if(kind==="conteosGuantes")return conteosGuantes; if(kind==="conteosBolsas")return conteosBolsas; if(kind==="config")return config; if(kind==="gen")return genWeeks; return null; };
 
   /* ============ init ============ */
   var todayMon=getMonday(new Date()).getTime();
@@ -3170,6 +3304,6 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
 <script type="module" src="firebase-sync.js"></script>
 <!-- Respaldo para iPads antiguos: script clásico (sin módulos ES) que se activa
      solo si la vía moderna no logró conectar. Ver firebase-rest-fallback.js -->
-<script src="firebase-rest-fallback.js?v=6"></script>
+<script src="firebase-rest-fallback.js?v=7"></script>
 </body>
 </html>
