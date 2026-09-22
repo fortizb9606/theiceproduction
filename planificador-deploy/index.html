@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD-MARK: 2026-09-14-total-semana-por-persona -->
+<!-- BUILD-MARK: 2026-09-22-bono-v3-costo-con-bono -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -146,7 +146,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   /* ============ constants ============ */
   var HH=60, HSTART=6, HEND=31;
   var GRIDH=(HEND-HSTART)*HH, MID=(24-HSTART)*HH;
-  var APP_BUILD="2026-09-14-total-semana-por-persona";
+  var APP_BUILD="2026-09-22-bono-v3-costo-con-bono";
   var DAYS=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
   var DAYS_SHORT=["LUN","MAR","MIÉ","JUE","VIE","SÁB","DOM"];
   var STORAGE_KEY="theice-production-shifts-v6", GEN_KEY="theice-generated-weeks-v6", INV_KEY="theice-inventory-v1", SAL_KEY="theice-salidas-v1", META_KEY="theice-metas-v1";
@@ -470,6 +470,24 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function rosterTipo(nm){ var t=(config.rosterType&&config.rosterType[nm])||"full_am"; if(t==="full") t="full_am"; return t; }
   function rosterTipoMeta(k){ for(var i=0;i<ROSTER_TIPOS.length;i++) if(ROSTER_TIPOS[i].key===k) return ROSTER_TIPOS[i]; return ROSTER_TIPOS[0]; }
   function esPartTime(nm){ return rosterTipo(nm)==="part"; }
+  /* Lista de un turno según Configuración, PERO filtrada contra el roster vigente.
+     Si a alguien se le cambia el nombre en Personas activas (ej. "John" pasa a
+     "Jhon Edwin Ochoa"), el nombre viejo queda pegado en defaultByShift y se
+     sumaba al nuevo: el turno terminaba con gente repetida y de más (pasó el
+     14-sep-2026, los AM quedaron con 8 en vez de 6). Esto lo evita en todos los
+     lugares que leen la dotación por turno. */
+  function dbsVivo(k){
+    var dbs=(config&&config.defaultByShift)||{};
+    var roster=((config&&config.roster)||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
+    var seen={},out=[];
+    (dbs[k]||[]).forEach(function(n){
+      n=(n||"").trim();
+      if(!n||seen[n]) return;
+      if(roster.indexOf(n)<0) return;   // ya no existe en Personas activas
+      seen[n]=1; out.push(n);
+    });
+    return out;
+  }
   function rosterNames(list){ var seen={},out=[]; (list||[]).forEach(function(n){ n=(n||"").trim(); if(n&&!seen[n]){ seen[n]=1; out.push(n); } }); return out; }
   function paidHeadcount(s){
     var names=allPeople(s).filter(function(n){ return (n||"").trim(); });
@@ -502,74 +520,89 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     return total;
   }
 
-  /* ── Bono de producción (setting final ago-2026, validado por Felipe) ──
-     Puerto directo de bono.js — mismos autotest pasando exacto:
-       calcularBonoObj({personas:6,mallas:259}).liquidoPersona === 6327
-       calcularBonoObj({personas:6,mallas:260}) → pozo 49950 congelado, retoma 271
-       calcularBonoObj({personas:3,mallas:130}).liquidoPersona === 6194 */
+  /* ===== Motor de bono de producción THE ICE (actualizado 17-sep-2026) =====
+     Ahorro disponible = (kg reales × $70 × factor equipo) − (personas × $37.000)
+     Pozo equipo       = ahorro × % de reparto del nivel alcanzado
+     Líquido/persona   = pozo ÷ personas × 76%
+     - Se calcula SIEMPRE con kilos reales; las mallas (15 kg) solo sirven para
+       ubicar las metas de cada nivel.
+     - El bono se activa recién desde la meta N1.
+     - El pozo nunca baja al subir de nivel: si el % nuevo da menos que lo ya
+       alcanzado, se mantiene el pozo anterior hasta que el cálculo lo supere.
+     Control: 3 personas · 2.250 kg (150 mallas) → $6.479 líquido por persona. */
   var BONO_CONFIG={
     costoBrutoPersonaTurno:37000,
     costoObjetivoKg:70,
     kgPorMalla:15,
     factorLiquido:0.76,
-    personasReferencia:6,
-    umbralesBase:[190,220,260,300,360],
-    repartoEquipoPct:[80,75,60,60],
-    // Metas oficiales (actualizadas 02-sep-2026, segunda corrección de Felipe):
-    // base de 3 personas bajó de 110 a 100, N1 de 127 a 110.
-    umbralesEspeciales:{3:[100,110,151,174,208],4:[133,147,201,232,279],5:[167,183,250,289,347],6:[190,220,260,300,360]},
-    // Gatillo explícito: el bono NO empieza a pagar solo porque el ahorro ya sea
-    // positivo — hay que llegar a este número de mallas. Para 3/4/5 es un valor
-    // fijo (puede ser distinto de la "base" de la tabla de metas — son dos cosas
-    // separadas a propósito, deja un colchón antes de pagar). Para cualquier otro
-    // tamaño de equipo (6 incluido) se calcula solo, del punto donde el costo baja
-    // de $70/kg.
-    gatilloFijo:{3:110,4:147,5:183},
+    // % del ahorro que va al equipo en N1, N2, N3, N4
+    repartoEquipoPct:[55,50,40,30],
+    // Bonificación sobre el objetivo de $70/kg según tamaño del equipo
+    factorEquipo:{3:1.00,4:1.02,5:1.04,6:1.06,7:1.08,8:1.10,9:1.12},
+    // Metas en mallas: [Base, N1, N2, N3, N4]
+    metas:{
+      3:[100,110,151,174,208],
+      4:[133,147,201,232,279],
+      5:[167,183,250,289,347],
+      6:[190,209,260,300,360],
+      7:[222,257,303,350,420],
+      8:[253,293,347,400,480],
+      9:[285,330,390,450,540]
+    },
     maxDiasBajoBaseMes:3,
   };
+  // Fuera de la tabla (menos de 3 o más de 9 personas): el factor sigue la misma
+  // progresión de +2% por persona (mínimo 100%), y las metas escalan en
+  // proporción desde el equipo de 6.
+  function bonoFactorEquipo(personas){
+    personas=Number(personas);
+    if(BONO_CONFIG.factorEquipo[personas]!=null) return BONO_CONFIG.factorEquipo[personas];
+    return Math.max(1,1+0.02*(personas-3));
+  }
   function bonoUmbrales(personas){
     personas=Number(personas);
-    if(BONO_CONFIG.umbralesEspeciales[personas]) return BONO_CONFIG.umbralesEspeciales[personas].slice();
-    var f=personas/BONO_CONFIG.personasReferencia;
-    return BONO_CONFIG.umbralesBase.map(function(x){ return Math.round(x*f); });
+    if(BONO_CONFIG.metas[personas]) return BONO_CONFIG.metas[personas].slice();
+    var f=personas/6;
+    return BONO_CONFIG.metas[6].map(function(x){ return Math.round(x*f); });
   }
-  function bonoInicio(personas){
-    personas=Number(personas);
-    if(BONO_CONFIG.gatilloFijo[personas]) return BONO_CONFIG.gatilloFijo[personas];
-    var labor=personas*BONO_CONFIG.costoBrutoPersonaTurno;
-    return Math.floor(labor/(BONO_CONFIG.costoObjetivoKg*BONO_CONFIG.kgPorMalla))+1;
+  // Meta N1 en mallas: desde aquí se activa el bono
+  function bonoInicio(personas){ return bonoUmbrales(personas)[1]; }
+  function bonoAhorro(personas,kg){
+    var bruto=kg*BONO_CONFIG.costoObjetivoKg*bonoFactorEquipo(personas)-personas*BONO_CONFIG.costoBrutoPersonaTurno;
+    return Math.max(0,bruto);
   }
-  function bonoPozoCrudo(personas,mallas){
+  // Pozo sin la protección de "nunca baja" — por kilos reales
+  function bonoPozoCrudo(personas,kg){
     var th=bonoUmbrales(personas);
-    var labor=personas*BONO_CONFIG.costoBrutoPersonaTurno;
-    var kg=mallas*BONO_CONFIG.kgPorMalla;
-    var ahorro=Math.max(0,BONO_CONFIG.costoObjetivoKg*kg-labor);
-    var gatillo=bonoInicio(personas);
-    // No paga nada antes del gatillo, aunque el ahorro matemático ya sea positivo.
-    if(ahorro<=0||mallas<gatillo) return {pozo:0,ahorro:ahorro,nivelIndex:-1,pctEquipo:0};
-    var li=-1; th.forEach(function(t,i){ if(mallas>=t) li=i; });
-    var pct=(li>=2?BONO_CONFIG.repartoEquipoPct[Math.min(li-1,3)]:BONO_CONFIG.repartoEquipoPct[0])/100;
+    var mallas=kg/BONO_CONFIG.kgPorMalla;
+    var ahorro=bonoAhorro(personas,kg);
+    if(ahorro<=0||mallas<th[1]) return {pozo:0,ahorro:ahorro,nivelIndex:-1,pctEquipo:0};
+    var li=1; for(var i=1;i<th.length;i++){ if(mallas>=th[i]) li=i; }
+    var pct=BONO_CONFIG.repartoEquipoPct[Math.min(li-1,3)]/100;
     return {pozo:ahorro*pct,ahorro:ahorro,nivelIndex:li,pctEquipo:pct};
   }
-  function calcularBonoObj(personas,mallas){
-    if(!(personas>0)) return {pozoDiaBruto:0,pozoCongelado:false,retomaEn:null,brutoPersona:0,liquidoPersona:0,nivel:"Sin bono",ahorroDisponible:0};
+  // personas + KILOS REALES
+  function calcularBonoObj(personas,kg){
+    personas=Number(personas); kg=Number(kg)||0;
+    if(!(personas>0)) return {pozoDiaBruto:0,pozoCongelado:false,retomaEn:null,brutoPersona:0,liquidoPersona:0,liquidoEquipo:0,nivel:"Sin bono",ahorroDisponible:0};
     var th=bonoUmbrales(personas);
-    var gatillo=bonoInicio(personas);
-    var r=bonoPozoCrudo(personas,mallas);
+    var kgM=BONO_CONFIG.kgPorMalla;
+    var mallas=kg/kgM;
+    var r=bonoPozoCrudo(personas,kg);
     var pozo=r.pozo;
-    [2,3,4].forEach(function(i){ if(mallas>=th[i]) pozo=Math.max(pozo,bonoPozoCrudo(personas,th[i]-1).pozo); });
+    // Nunca baja: al cruzar N2, N3 o N4, se compara con lo que ya se tenía justo
+    // antes de cruzar (1 kg bajo la meta) y se queda con el mayor.
+    [2,3,4].forEach(function(i){ if(mallas>=th[i]) pozo=Math.max(pozo,bonoPozoCrudo(personas,th[i]*kgM-1).pozo); });
     var congelado=pozo>r.pozo+0.5;
     var retomaEn=null;
-    if(congelado){ for(var b=Math.ceil(mallas)+1;b<=Math.ceil(mallas)+250;b++){ if(bonoPozoCrudo(personas,b).pozo>pozo+0.5){ retomaEn=b; break; } } }
-    // Arreglado 02-sep-2026: antes esta etiqueta miraba solo r.ahorro>0, y podía
-    // decir "N1" con $0 de bono real entre la "base" y el gatillo (mallas donde el
-    // ahorro matemático ya es positivo pero el gatillo todavía no se alcanza).
-    // Ahora exige también haber llegado al gatillo, igual que el pago real.
-    var nivel=(r.ahorro<=0||mallas<gatillo)?(mallas>=th[0]?"Base":"Sin bono"):(r.nivelIndex>=2?"N"+r.nivelIndex:"N1");
+    if(congelado){ for(var b=Math.ceil(mallas)+1;b<=Math.ceil(mallas)+300;b++){ if(bonoPozoCrudo(personas,b*kgM).pozo>pozo+0.5){ retomaEn=b; break; } } }
+    var nivel=r.nivelIndex<1?(mallas>=th[0]?"Base":"Sin bono"):("N"+r.nivelIndex);
+    var liqPersona=Math.round(pozo/personas*BONO_CONFIG.factorLiquido);
     return {
       pozoDiaBruto:Math.round(pozo), pozoCongelado:congelado, retomaEn:retomaEn,
-      brutoPersona:Math.round(pozo/personas), liquidoPersona:Math.round(pozo/personas*BONO_CONFIG.factorLiquido),
-      nivel:nivel, ahorroDisponible:r.ahorro, umbrales:th,
+      brutoPersona:Math.round(pozo/personas), liquidoPersona:liqPersona,
+      liquidoEquipo:liqPersona*personas,
+      nivel:nivel, ahorroDisponible:Math.round(r.ahorro), umbrales:th,
     };
   }
   /* Bono por TURNO (02-sep-2026, a pedido de Felipe) — antes se juntaban todos los
@@ -579,10 +612,28 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
      uno por separado, no se mezclan en un pozo común. */
   function bonoTurnoCompute(s){
     if(!s||!s.closed) return null;
-    var personas=paidHeadcount(s), mallas=Number(s.meshReal||0);
+    var personas=paidHeadcount(s);
+    // El bono va sobre la producción BRUTA: lo vendible + lo que se perdió como
+    // merma. El equipo trabajó esas mallas igual, así que la merma no le baja el
+    // bono. El costo/kg y los reportes siguen usando meshReal (solo lo vendible).
+    // Kilos reales vendibles + kilos de merma (el equipo los produjo igual).
+    var kgMerma=(s.mermaByProduct||[]).reduce(function(a,m){ return a+Number((m&&m.kg)||0); },0);
+    var kg=Number(s.kgReal||0)+kgMerma;
     if(!(personas>0)) return null;
-    return calcularBonoObj(personas,mallas);
+    return calcularBonoObj(personas,kg);
   }
+  /* ---- Costo del turno INCLUYENDO el bono líquido (17-sep-2026) ----
+     Costo/kg = (mano de obra + bono líquido que libera el turno) ÷ kg.
+     Antes el costo/kg era solo mano de obra, así que un turno que producía
+     mucho se veía más barato de lo que realmente costaba: el bono que se
+     gana por esa producción no aparecía en ningún lado. */
+  function bonoLiquidoTurno(s){
+    if(!s) return 0;
+    if(s.closed){ var b=bonoTurnoCompute(s); return b?(b.liquidoEquipo||0):0; }
+    var p=paidHeadcount(s); if(!(p>0)) return 0;
+    return calcularBonoObj(p,metaKg(s)).liquidoEquipo||0;   // proyectado sobre la meta
+  }
+  function costoTotalTurno(s){ return laborCost(s)+bonoLiquidoTurno(s); }
   function bonoTurnosDelDia(iso){ return state.shifts.filter(function(s){ return s.date===iso&&s.closed; }); }
   function prevDayInventory(iso){
     var before=state.shifts.filter(function(s){ return s.closed && s.date<iso && s.invFinal && s.invFinal.length; });
@@ -714,12 +765,10 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function syncRostersFromConfig(){
     var hoy=isoDate(new Date());
     var roster=(config.roster||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
-    var dbs=config.defaultByShift||{am:[],ext:[],pm:[]};
-    var vivos=function(list){ return (list||[]).filter(function(n){ return roster.indexOf(n)>=0; }); };
-    var amTodos=vivos(dbs.am);
+    var amTodos=dbsVivo("am");
     var fullAM=amTodos.filter(function(n){ return !esPartTime(n); });
     var parts=amTodos.filter(function(n){ return esPartTime(n); });
-    var fullExt=vivos(dbs.ext), fullPM=vivos(dbs.pm);
+    var fullExt=dbsVivo("ext"), fullPM=dbsVivo("pm");
     var cambiados=[];
     state.shifts.forEach(function(s){
       if(s.closed) return;
@@ -781,7 +830,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function persist(){ try{ localStorage.setItem(STORAGE_KEY,JSON.stringify(state.shifts)); }catch(e){} }
   function persistGen(){ try{ localStorage.setItem(GEN_KEY,JSON.stringify(genWeeks)); }catch(e){} }
   function persistInv(){ try{ localStorage.setItem(INV_KEY,JSON.stringify(inventory)); }catch(e){} }
-  function blankDraft(){ var pr=activeProducts().map(function(p){return {product:p,kg:"",mesh:""};}); return {id:uid(),title:"",day:"",type:"am",start:"07:00",end:"16:00",products:pr,costPerPerson:String(COST_PER_PERSON),wasteTarget:"2",prodType:"normal",maquina:"si",people:["","",""],groupA:(function(){ var a=(config&&config.defaultGroupA?config.defaultGroupA.slice():[]); var b=(config&&config.defaultGroupB?config.defaultGroupB.slice():[]); var all=a.concat(b).filter(function(n){return (n||"").trim();}); return all.length?all:["","","",""]; })(),groupB:[],groupPT:[""],notes:"",closed:false,attendance:{},invInicial:pr.map(function(){return {mesh:"",kg:""};}),invCounts:pr.map(function(){return {mesh:"",kg:""};}),invInicial20:{sacos:"",kg:""},invFinal20:{sacos:"",kg:""},realByProduct:pr.map(function(){return {kg:"",mesh:""};})}; }
+  function blankDraft(){ var pr=activeProducts().map(function(p){return {product:p,kg:"",mesh:""};}); return {id:uid(),title:"",day:"",type:"am",start:"07:00",end:"16:00",products:pr,costPerPerson:String(COST_PER_PERSON),wasteTarget:"2",prodType:"normal",maquina:"si",people:["","",""],groupA:(function(){ var a=(config&&config.defaultGroupA?config.defaultGroupA.slice():[]); var b=(config&&config.defaultGroupB?config.defaultGroupB.slice():[]); var all=a.concat(b).filter(function(n){return (n||"").trim();}); return all.length?all:["","","",""]; })(),groupB:[],groupPT:[""],notes:"",closed:false,attendance:{},invInicial:pr.map(function(){return {mesh:"",kg:""};}),invCounts:pr.map(function(){return {mesh:"",kg:""};}),invInicial20:{sacos:"",kg:""},invFinal20:{sacos:"",kg:""},realByProduct:pr.map(function(){return {kg:"",mesh:""};}),mermaCount:pr.map(function(){return {mesh:""};})}; }
   function updateShift(id,patch){ state.shifts=state.shifts.map(function(s){ return s.id===id?Object.assign({},s,patch):s; }); }
   function weekDates(){ var ws=new Date(state.weekStartMs); var out=[]; for(var i=0;i<7;i++){ var d=new Date(ws); d.setDate(d.getDate()+i); out.push(d);} return out; }
   function findShift(id){ for(var i=0;i<state.shifts.length;i++){ if(state.shifts[i].id===id) return state.shifts[i]; } return null; }
@@ -799,16 +848,15 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       // Antes salía de defaultGroupA, un campo viejo que quedó congelado con
       // nombres antiguos (Nicole/Santiago/Kevin) y por eso las semanas nuevas se
       // generaban con gente equivocada, distinta a la configurada (07-sep-2026).
-      var dbsGen=config.defaultByShift||{am:[],ext:[],pm:[]};
       var esNocheGen=t.group==="night";
       var esExtGen=t.group==="custom"||/extensi/i.test(t.title||"");
       if(t.group==="am"){
-        var amGen=(dbsGen.am||[]).filter(Boolean);
+        var amGen=dbsVivo("am");
         o.groupA=amGen.filter(function(n){ return !esPartTime(n); });
         o.groupPT=amGen.filter(function(n){ return esPartTime(n); });
         o.groupB=[];
-      } else if(esNocheGen){ o.people=(dbsGen.pm||[]).filter(Boolean).slice(); }
-      else if(esExtGen){ o.people=(dbsGen.ext||[]).filter(Boolean).slice(); }
+      } else if(esNocheGen){ o.people=dbsVivo("pm"); }
+      else if(esExtGen){ o.people=dbsVivo("ext"); }
       else { o.people=["",""]; }
       out.push(o);
     }); });
@@ -972,7 +1020,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var closed=!!s.closed;
         var kgShow=closed?(s.kgReal||0):metaKg(s);
         var meshShow=closed?(s.meshReal||0):metaMesh(s);
-        var cpk=(closed&&kgShow>0)?Math.round(laborCost(s)/kgShow):null;
+        var cpk=(closed&&kgShow>0)?Math.round(costoTotalTurno(s)/kgShow):null;
         var names=allPeople(s).map(function(n){return (n||"").trim();}).filter(Boolean);
         var att=s.attendance||{};
         var ausentes=names.filter(function(n){ return att[n]==="ausente"; });
@@ -988,6 +1036,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
             +'<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">Mallas</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(Math.round(meshShow))+'</div></div>'
             +(cpk!=null?('<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">Costo/kg</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">$'+fmt(cpk)+'</div></div>'):'')
             +(invClose!=null?('<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-muted,#647787);text-transform:uppercase;letter-spacing:.04em">Inv. cierre</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-text,#14202B)">'+fmt(Math.round(invClose))+' kg</div></div>'):'')
+            +(function(){ var mm=mermaMeshDeTurno(s); return (closed&&mm>0)?('<div><div style="font:600 10px \'Space Grotesk\';color:var(--ti-warn,#B26B00);text-transform:uppercase;letter-spacing:.04em">Merma</div><div style="margin-top:2px;font:700 15px \'IBM Plex Mono\';color:var(--ti-warn,#B26B00)">'+fmt(Math.round(mm))+' mallas</div></div>'):''; })()
           +'</div>'
           +(ausentes.length?('<div style="margin-top:10px;font:600 11.5px \'Space Grotesk\';color:var(--ti-danger,#e5484d)">Ausentes: '+ausentes.map(esc).join(", ")+'</div>'):'')
           +'<button class="ti-ghost ti-press" data-act="openShiftFromSummary" data-id="'+s.id+'" style="margin-top:12px;height:36px;padding:0 14px;border-radius:10px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface2,#F3F6F9);color:var(--ti-text,#14202B);font:600 12.5px \'Space Grotesk\'">Abrir turno</button>'
@@ -1081,6 +1130,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     state.draft={ id:s.id,title:s.title,day:s.date,type:s.type,start:s.start,end:s.end,products:ps,
       costPerPerson:String(s.costPerPerson==null?COST_PER_PERSON:s.costPerPerson),
       wasteTarget:String(s.wasteTarget==null?"":s.wasteTarget),prodType:s.prodType||"normal",maquina:s.maquina||"si",
+      mermaCount:ps.map(function(p,i){ var m=(s.mermaByProduct&&s.mermaByProduct[i]); return {mesh:(m&&m.mesh!=null&&m.mesh!=="")?String(m.mesh):""}; }),
       people:(s.people&&s.people.length?s.people.slice():["","",""]),
       // Ya NO se fusiona groupB dentro de groupA (02-sep-2026): groupB está vacío en
       // toda la base y protegido por regla; si un navegador todavía tiene residuo
@@ -1351,6 +1401,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var o={ id:state.editingId||d.id||uid(), title:d.title.trim(), date:d.day, type:d.type, start:d.start, end:d.end,
       products:prods, costPerPerson:Number(d.costPerPerson||COST_PER_PERSON),
       wasteTarget:Number(d.wasteTarget||0), prodType:d.prodType||"normal", maquina:d.maquina||"si",
+      mermaByProduct:d.products.map(function(p,i){ var mm=draftMerma(i); return {product:p.product,mesh:mm,kg:mm*kgMalla(p.product)}; }),
       notes:d.notes.trim(), realByProduct:rb, kgReal:kgR, meshReal:meR, invInicial:invIni, invFinal:invFin,
       invInicial20:(i20!=null?{kg:i20}:null), invFinal20:(f20!=null?{kg:f20}:null), attendance:attOut, closed:!!d.closed };
     if(d.type==="am"){ o.groupA=d.groupA.map(function(x){return x.trim();}).filter(Boolean); o.groupB=d.groupB.map(function(x){return x.trim();}).filter(Boolean); o.groupPT=(d.groupPT||[]).map(function(x){return x.trim();}).filter(Boolean); }
@@ -1617,7 +1668,12 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     });
     return total;
   }
-  function draftCPK(){ var kg=draftMetaKg(); return kg>0?("$"+fmt(Math.round(draftLabor()/kg))):"—"; }
+  // Bono líquido del turno que se está editando (en vivo, antes de guardar)
+  function draftBonoLiquido(kg){
+    var p=draftPaidHeadcount(); if(!(p>0)||!(kg>0)) return 0;
+    return calcularBonoObj(p,kg).liquidoEquipo||0;
+  }
+  function draftCPK(){ var kg=draftMetaKg(); return kg>0?("$"+fmt(Math.round((draftLabor()+draftBonoLiquido(kg))/kg))):"—"; }
   /* ---- producción real = Inventario final − Inventario inicial + Salidas (cuadre automático) ---- */
   function salidasKgFor(product,date){ return salidas.filter(function(x){ return x.product===product&&x.date===date; }).reduce(function(a,x){ return a+Number(x.kg||0); },0); }
   /* Salidas que pertenecen a ESTE turno específico, no al día completo (02-sep-2026).
@@ -1639,6 +1695,18 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   }
   function draftInvIni(i){ var v=(state.draft.invInicial||[])[i]; var kg=v&&v.kg; return (kg!==""&&kg!=null&&!isNaN(Number(kg)))?Number(kg):null; }
   function draftInvFin(i){ var v=(state.draft.invCounts||[])[i]; var kg=v&&v.kg; return (kg!==""&&kg!=null&&!isNaN(Number(kg)))?Number(kg):null; }
+  /* Merma declarada del turno, en mallas, por producto. Es hielo que SÍ se
+     produjo pero se perdió (roto, derretido, mal sellado): no está en el
+     inventario final, pero el equipo lo trabajó. Se guarda aparte para que
+     NO castigue el bono, sin inflar la producción neta ni el costo/kg. */
+  function draftMerma(i){
+    var d=state.draft; var r=(d.mermaCount||[])[i];
+    if(!r||r.mesh===""||r.mesh==null||isNaN(Number(r.mesh))) return 0;
+    return Math.max(0,Number(r.mesh));
+  }
+  function mermaMeshDeTurno(s){
+    return (s.mermaByProduct||[]).reduce(function(a,m){ return a+Number((m&&m.mesh)||0); },0);
+  }
   function draftComputedReal(i){
     var p=state.draft.products[i]; if(!p) return null;
     var ini=draftInvIni(i), fin=draftInvFin(i); if(ini==null||fin==null) return null;
@@ -1660,7 +1728,13 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
   function draftRealMesh(){ var t=0; state.draft.products.forEach(function(_,i){ var r=draftComputedReal(i); if(r&&r.mesh!=null) t+=r.mesh; }); return t; }
   function draftAnyRealKg(){ return draftRealTotalsKnown(); }
   function draftAnyRealMesh(){ return draftRealTotalsKnown(); }
-  function draftRealCPK(){ if(!draftRealTotalsKnown()) return "—"; var kg=draftRealKg(); return kg>0?("$"+fmt(Math.round(draftLabor()/kg))):"—"; }
+  function draftRealCPK(){
+    if(!draftRealTotalsKnown()) return "—"; var kg=draftRealKg(); if(!(kg>0)) return "—";
+    // el bono va sobre kg reales + merma; el costo/kg se divide solo por lo vendible
+    var d=state.draft;
+    var kgMerma=(d.products||[]).reduce(function(a,p,i){ return a+draftMerma(i)*kgMalla(p.product); },0);
+    return "$"+fmt(Math.round((draftLabor()+draftBonoLiquido(kg+kgMerma))/kg));
+  }
   function varianceHTML(realStr,meta,unit){
     if(realStr===""||realStr==null) return '<span style="color:var(--ti-muted,#647787)">Sin registrar</span>';
     var real=Number(realStr); var diff=real-meta; var pct=meta>0?Math.round(diff/meta*1000)/10:0;
@@ -1679,6 +1753,11 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var vkg=root.querySelector("[data-var-kg]"); if(vkg) vkg.innerHTML=varianceHTML(draftAnyRealKg()?String(draftRealKg()):"",draftMetaKg(),"kg");
     var vme=root.querySelector("[data-var-mesh]"); if(vme) vme.innerHTML=varianceHTML(draftAnyRealMesh()?String(draftRealMesh()):"",draftMetaMesh(),"mallas");
     var rcpk=root.querySelector("[data-realcpk]"); if(rcpk) rcpk.textContent=draftRealCPK();
+    var bmEl=root.querySelector("[data-bonometa]"); if(bmEl) bmEl.textContent="$"+fmt(draftBonoLiquido(draftMetaKg()));
+    var brEl=root.querySelector("[data-bonoreal]"); if(brEl){
+      if(!draftRealTotalsKnown()){ brEl.textContent="—"; }
+      else { var dd2=state.draft; var km2=(dd2.products||[]).reduce(function(a,p,i){ return a+draftMerma(i)*kgMalla(p.product); },0); brEl.textContent="$"+fmt(draftBonoLiquido(draftRealKg()+km2)); }
+    }
     state.draft.products.forEach(function(p,idx){
       var r=draftComputedReal(idx);
       var kgOut=root.querySelector('[data-realout-kg="'+idx+'"]'); if(kgOut) kgOut.textContent=r?fmt(Math.round(r.kg)):"—";
@@ -1723,7 +1802,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var progVis=vis.filter(function(s){ return !s.closed && !isEnded(s); });
     var rKg=closedVis.reduce(function(a,s){ return a+Number(s.kgReal||0); },0);
     var rMesh=closedVis.reduce(function(a,s){ return a+Number(s.meshReal||0); },0);
-    var closedCost=closedVis.reduce(function(a,s){ return a+laborCost(s); },0);
+    var closedCost=closedVis.reduce(function(a,s){ return a+costoTotalTurno(s); },0);   // MO + bono líquido
+    var bonoSemana=closedVis.reduce(function(a,s){ return a+bonoLiquidoTurno(s); },0);
     var realCPK=rKg>0?Math.round(closedCost/rKg):null;
     var metaKgClosed=closedVis.reduce(function(a,s){ return a+metaKg(s); },0);
     var cumpl=metaKgClosed>0?Math.round(rKg/metaKgClosed*100):null;
@@ -1824,7 +1904,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
             var amStyle=base.replace("border-left:3px solid "+c.bar+";","")+"padding-left:12px;cursor:grab;";
             var grad='<div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:'+(npt>0?('linear-gradient(to bottom,'+th.types.b.bar+' 0 '+fullPct+'%,'+th.types.a.bar+' '+fullPct+'% 100%)'):th.types.b.bar)+'"></div>';
             var grow=function(nm,col,n){ return '<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:3px;flex:none;background:'+col+'"></span><span style="font:600 11px \'Space Grotesk\';color:'+tx+'">'+nm+'</span>'+peopleIcons(n,col)+'<span style="font:600 9.5px \'IBM Plex Mono\';color:'+tx+';opacity:.6;margin-left:auto">'+n+'p</span></div>'; };
-            var amChips=""; if(closed){ amChips+=chip(IC.check(9)+' '+fmt(s.kgReal||0)+' kg',tx,chipStrong,"display:inline-flex;align-items:center;gap:3px;box-shadow:inset 0 0 0 1px var(--ti-ok,#12A150)"); amChips+=chip(fmt(s.meshReal||0)+' mallas',tx,chipStrong); var cpkAmReal=(s.kgReal||0)>0?Math.round(laborCost(s)/s.kgReal):null; if(cpkAmReal!=null) amChips+=chip('$'+fmt(cpkAmReal)+'/kg',tx,chipStrong); } else { amChips+=chip(fmt(metaKg(s))+' kg',tx,chipBg); amChips+=chip(fmt(metaMesh(s))+' mallas',tx,chipBg); var cpkAm=metaKg(s)>0?Math.round(laborCost(s)/metaKg(s)):null; if(cpkAm!=null) amChips+=chip('$'+fmt(cpkAm)+'/kg',tx,chipBg); }
+            var mermaAM=mermaMeshDeTurno(s);
+            var amChips=""; if(closed){ amChips+=chip(IC.check(9)+' '+fmt(s.kgReal||0)+' kg',tx,chipStrong,"display:inline-flex;align-items:center;gap:3px;box-shadow:inset 0 0 0 1px var(--ti-ok,#12A150)"); amChips+=chip(fmt(s.meshReal||0)+' mallas',tx,chipStrong); if(mermaAM>0) amChips+=chip('merma '+fmt(mermaAM),tx,chipStrong,"box-shadow:inset 0 0 0 1px var(--ti-warn,#B26B00)"); var cpkAmReal=(s.kgReal||0)>0?Math.round(costoTotalTurno(s)/s.kgReal):null; if(cpkAmReal!=null) amChips+=chip('$'+fmt(cpkAmReal)+'/kg',tx,chipStrong); } else { amChips+=chip(fmt(metaKg(s))+' kg',tx,chipBg); amChips+=chip(fmt(metaMesh(s))+' mallas',tx,chipBg); var cpkAm=metaKg(s)>0?Math.round(costoTotalTurno(s)/metaKg(s)):null; if(cpkAm!=null) amChips+=chip('$'+fmt(cpkAm)+'/kg',tx,chipBg); }
             var amBadge=closed?'<span style="display:inline-flex;align-items:center;gap:3px;font:600 8.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-ok,#12A150);background:var(--ti-ok-soft,#E4F5EC);padding:2px 6px;border-radius:5px">'+IC.check(10)+'Real</span>':(isEnded(s)?'<span style="font:600 8.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-warn,#B26B00);background:var(--ti-warn-bg,#FFF5E0);padding:2px 6px;border-radius:5px">Pend.</span>':'');
             var totLabel=tot+' pers.'+(pinfo.licencia?(' <span style="opacity:.7;font-weight:600">('+pinfo.licencia+' lic.)</span>'):'');
             return '<div class="ti-shift ti-press" data-card-id="'+s.id+'" title="Turno AM · '+tot+' personas real'+(pinfo.licencia?(' ('+pinfo.licencia+' con licencia)'):'')+'" style="'+amStyle+'">'+grad+
@@ -1842,8 +1923,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
             else if(showPriority) badge='<span style="flex:none;font:600 8.5px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:'+tx+';background:'+chipStrong+';padding:2px 6px;border-radius:5px">'+esc(prio)+'</span>';
             else if(isEnded(s)) badge='<span style="flex:none;font:600 8.5px \'Space Grotesk\';letter-spacing:.04em;text-transform:uppercase;color:var(--ti-warn,#B26B00);background:var(--ti-warn-bg,#FFF5E0);padding:2px 6px;border-radius:5px">Pend.</span>';
             var chips='<span style="display:inline-flex;align-items:center;gap:4px;font:600 10px \'IBM Plex Mono\';color:'+tx+';background:'+chipBg+';padding:2px 6px;border-radius:6px">'+peopleIcons(pc,c.bar)+pc+' pers.</span>';
-            if(closed){ var mk=metaKg(s); chips+=chip(IC.check(9)+' '+fmt(s.kgReal||0)+'/'+fmt(mk)+' kg', tx, chipStrong, "display:inline-flex;align-items:center;gap:3px;box-shadow:inset 0 0 0 1px "+((s.kgReal||0)>=mk?"var(--ti-ok,#12A150)":"var(--ti-danger,#e5484d)")); var cpkReal=(s.kgReal||0)>0?Math.round(laborCost(s)/s.kgReal):null; if(cpkReal!=null) chips+=chip('$'+fmt(cpkReal)+'/kg',tx,chipStrong); }
-            else if(showKg){ chips+=chip(fmt(metaKg(s))+' kg', tx, chipBg); chips+=chip(fmt(metaMesh(s))+' mallas', tx, chipBg); var cpkMeta=metaKg(s)>0?Math.round(laborCost(s)/metaKg(s)):null; if(cpkMeta!=null) chips+=chip('$'+fmt(cpkMeta)+'/kg', tx, chipBg); }
+            if(closed){ var mk=metaKg(s); chips+=chip(IC.check(9)+' '+fmt(s.kgReal||0)+'/'+fmt(mk)+' kg', tx, chipStrong, "display:inline-flex;align-items:center;gap:3px;box-shadow:inset 0 0 0 1px "+((s.kgReal||0)>=mk?"var(--ti-ok,#12A150)":"var(--ti-danger,#e5484d)")); var cpkReal=(s.kgReal||0)>0?Math.round(costoTotalTurno(s)/s.kgReal):null; if(cpkReal!=null) chips+=chip('$'+fmt(cpkReal)+'/kg',tx,chipStrong); }
+            else if(showKg){ chips+=chip(fmt(metaKg(s))+' kg', tx, chipBg); chips+=chip(fmt(metaMesh(s))+' mallas', tx, chipBg); var cpkMeta=metaKg(s)>0?Math.round(costoTotalTurno(s)/metaKg(s)):null; if(cpkMeta!=null) chips+=chip('$'+fmt(cpkMeta)+'/kg', tx, chipBg); }
             return '<div class="ti-shift ti-press" data-card-id="'+s.id+'" title="'+esc(s.title)+' · '+esc(timeLabel(s))+'" style="'+base+'cursor:grab;">'+
               '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px"><div style="font:600 10.5px \'IBM Plex Mono\';color:'+tx+';opacity:.72;white-space:nowrap">'+esc(timeLabel(s))+'</div>'+badge+'</div>'+
               '<div style="margin-top:2px;display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:3px;flex:none;background:'+c.bar+'"></span><span style="font:700 13px/1.15 \'Space Grotesk\';letter-spacing:-.01em;color:'+tx+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(s.title)+'</span></div>'+
@@ -1868,7 +1949,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       var metrics=[
         {label:"Kilos meta",value:fmt(mKg),unit:"kg",tag:vis.length+" turnos",sub:closedVis.length?('Real: '+fmt(rKg)+' kg · '+(mKg?Math.round(rKg/mKg*100):0)+'% de la meta'):"Meta total de la semana"},
         {label:"Mallas planificadas",value:fmt(mMesh),unit:"",tag:"semana",sub:closedVis.length?('Real: '+fmt(rMesh)+' mallas'):"Suma de metas de la semana"},
-        {label:"Costo mano de obra",value:"$"+fmt(cost),unit:"",tag:"CLP",sub:"≈ $"+fmt(mKg?Math.round(cost/mKg):0)+"/kg meta"+(realCPK!=null?" · $"+fmt(realCPK)+"/kg real":"")},
+        {label:"Costo mano de obra",value:"$"+fmt(cost),unit:"",tag:"CLP",sub:(bonoSemana>0?("+ $"+fmt(bonoSemana)+" bono · "):"")+(realCPK!=null?("$"+fmt(realCPK)+"/kg real con bono"):("≈ $"+fmt(mKg?Math.round(cost/mKg):0)+"/kg meta"))},
         {label:"Merma objetivo prom.",value:fmt1(merma),unit:"%",tag:"objetivo",sub:fmt(Math.round(personHours))+" horas-persona"}
       ];
       var metricsHtml=metrics.map(function(m,mi){ return '<div style="flex:1;min-width:150px;padding:9px 16px'+(mi>0?';border-left:1px solid var(--ti-line2,#E8EDF2)':'')+'"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px"><div style="font:600 10.5px \'Space Grotesk\';letter-spacing:.02em;color:var(--ti-muted,#647787)">'+m.label+'</div><div style="font:600 9px \'IBM Plex Mono\';color:'+acc+';background:'+softChip+';padding:2px 6px;border-radius:5px">'+m.tag+'</div></div><div style="margin-top:4px;display:flex;align-items:baseline;gap:4px"><span style="font:700 19px/1 \'IBM Plex Mono\';letter-spacing:-.02em;color:var(--ti-text,#14202B);font-variant-numeric:tabular-nums">'+m.value+'</span><span style="font:600 11px \'IBM Plex Mono\';color:var(--ti-muted,#647787)">'+m.unit+'</span></div><div style="margin-top:3px;font:500 10.5px \'Space Grotesk\';color:var(--ti-muted,#647787);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+m.sub.replace(/<[^>]*>/g,"")+'">'+m.sub+'</div></div>'; }).join("");
@@ -1989,10 +2070,10 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       }
       var rosterFull=roster.filter(function(n){ return !esPartTime(n); });
       var rosterPart=roster.filter(function(n){ return esPartTime(n); });
-      var dbsAtt=config.defaultByShift||{am:[],ext:[],pm:[]};
-      var rosterFullAM=rosterFull.filter(function(n){ return (dbsAtt.am||[]).indexOf(n)>=0; });
-      var rosterFullExt=rosterFull.filter(function(n){ return (dbsAtt.ext||[]).indexOf(n)>=0; });
-      var rosterFullPM=rosterFull.filter(function(n){ return (dbsAtt.pm||[]).indexOf(n)>=0; });
+      var amV=dbsVivo("am"), extV=dbsVivo("ext"), pmV=dbsVivo("pm");
+      var rosterFullAM=rosterFull.filter(function(n){ return amV.indexOf(n)>=0; });
+      var rosterFullExt=rosterFull.filter(function(n){ return extV.indexOf(n)>=0; });
+      var rosterFullPM=rosterFull.filter(function(n){ return pmV.indexOf(n)>=0; });
       var rosterFullSinTurno=rosterFull.filter(function(n){ return rosterFullAM.indexOf(n)<0&&rosterFullExt.indexOf(n)<0&&rosterFullPM.indexOf(n)<0; });
       /* Totales de la semana por persona, para la última columna de cada fila.
          El bono usa el monto puesto a mano si existe, y el automático si no —
@@ -2571,7 +2652,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       mKg=sumMetaKgRange(rf,rt); mMesh=sumMetaMeshRange(rf,rt); cost=vis.reduce(function(a,s){return a+laborCost(s);},0);
       closedVis=vis.filter(function(s){return s.closed;}); pendVis=vis.filter(function(s){return !s.closed&&isEnded(s);}); progVis=vis.filter(function(s){return !s.closed&&!isEnded(s);});
       rKg=closedVis.reduce(function(a,s){return a+Number(s.kgReal||0);},0); rMesh=closedVis.reduce(function(a,s){return a+Number(s.meshReal||0);},0);
-      closedCost=closedVis.reduce(function(a,s){return a+laborCost(s);},0); realCPK=rKg>0?Math.round(closedCost/rKg):null;
+      closedCost=closedVis.reduce(function(a,s){return a+costoTotalTurno(s);},0); realCPK=rKg>0?Math.round(closedCost/rKg):null;
       metaKgClosed=closedVis.reduce(function(a,s){return a+metaKg(s);},0); cumpl=metaKgClosed>0?Math.round(rKg/metaKgClosed*100):null;
       var salTotalRango=salidas.filter(function(s){ return s.date>=rf&&s.date<=rt; }).reduce(function(a,s){ return a+Number(s.kg||0); },0);
       var margenProdSal=rKg-salTotalRango;
@@ -2609,7 +2690,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
         var rankRows=prodArr.map(function(p,i){ return '<tr><td class="ti-num" style="color:var(--ti-muted,#647787)">'+(i+1)+'</td><td><span style="display:inline-flex;align-items:center;gap:9px"><span style="width:9px;height:9px;border-radius:3px;background:'+p.color+'"></span>'+esc(p.name)+'</span></td><td class="ti-num">'+fmt(p.kg)+' kg</td><td class="ti-num">'+fmt(p.mesh)+'</td><td style="width:34%"><div style="display:flex;align-items:center;gap:10px"><div style="flex:1;height:8px;border-radius:6px;background:var(--ti-surface2,#F3F6F9);overflow:hidden"><div style="height:100%;width:'+p.pct+'%;background:'+p.color+';border-radius:6px"></div></div><span class="ti-num" style="width:52px;color:var(--ti-muted,#647787)">'+fmt1(p.pct)+'%</span></div></td></tr>'; }).join("")||'<tr><td colspan="5" style="text-align:center;color:var(--ti-muted,#647787);padding:22px">Sin producción real todavía en este rango.</td></tr>';
         var ranking='<section style="'+CARD+';overflow:hidden">'+sectionHead("Ranking de productos","Ordenado por kilos reales producidos")+'<div style="overflow:auto"><table class="ti-tbl"><thead><tr><th style="width:44px">#</th><th>Producto</th><th style="text-align:right">Kg real</th><th style="text-align:right">Mallas</th><th>Peso</th></tr></thead><tbody>'+rankRows+'</tbody></table></div></section>';
         var sorted=vis.slice().sort(function(a,b){ return a.date.localeCompare(b.date)||parseTime(a.start)-parseTime(b.start); });
-        var rows=sorted.map(function(s){ var wd=parseIso(s.date).getDay(); wd=(wd+6)%7; var mk=metaKg(s); var realCell,varCell,cpkCell; if(s.closed){ realCell=fmt(s.kgReal||0)+" kg"; var diff=(s.kgReal||0)-mk; var col=diff>=0?"var(--ti-ok,#12A150)":"var(--ti-danger,#e5484d)"; varCell=diff===0?'<span style="color:var(--ti-muted,#647787)">En meta</span>':'<span style="color:'+col+';font-weight:600">'+(diff>0?"+":"")+fmt(diff)+' kg</span>'; cpkCell=(s.kgReal>0)?("$"+fmt(Math.round(laborCost(s)/s.kgReal))):'<span style="color:var(--ti-muted,#647787)">—</span>'; } else { realCell='<span style="color:var(--ti-muted,#647787)">—</span>'; varCell='<span style="color:var(--ti-muted,#647787)">—</span>'; cpkCell='<span style="color:var(--ti-muted,#647787)">—</span>'; } return '<tr class="ti-row" data-act="editShift" data-id="'+s.id+'" style="cursor:pointer"><td><div style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(s.title)+'</div><div style="font:500 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+esc(productLabel(s))+'</div></td><td style="white-space:nowrap">'+DAYS_SHORT[wd]+' '+parseIso(s.date).getDate()+'</td><td class="ti-num">'+esc(timeLabel(s))+'</td><td class="ti-num">'+pcount(s)+'</td><td class="ti-num">'+fmt(mk)+' kg</td><td class="ti-num">'+realCell+'</td><td class="ti-num">'+varCell+'</td><td class="ti-num">$'+fmt(laborCost(s))+'</td><td class="ti-num">'+cpkCell+'</td><td>'+estadoPill(s)+'</td></tr>'; }).join("");
+        var rows=sorted.map(function(s){ var wd=parseIso(s.date).getDay(); wd=(wd+6)%7; var mk=metaKg(s); var realCell,varCell,cpkCell; if(s.closed){ realCell=fmt(s.kgReal||0)+" kg"; var diff=(s.kgReal||0)-mk; var col=diff>=0?"var(--ti-ok,#12A150)":"var(--ti-danger,#e5484d)"; varCell=diff===0?'<span style="color:var(--ti-muted,#647787)">En meta</span>':'<span style="color:'+col+';font-weight:600">'+(diff>0?"+":"")+fmt(diff)+' kg</span>'; cpkCell=(s.kgReal>0)?("$"+fmt(Math.round(costoTotalTurno(s)/s.kgReal))):'<span style="color:var(--ti-muted,#647787)">—</span>'; } else { realCell='<span style="color:var(--ti-muted,#647787)">—</span>'; varCell='<span style="color:var(--ti-muted,#647787)">—</span>'; cpkCell='<span style="color:var(--ti-muted,#647787)">—</span>'; } return '<tr class="ti-row" data-act="editShift" data-id="'+s.id+'" style="cursor:pointer"><td><div style="font:600 13px \'Space Grotesk\';color:var(--ti-text,#14202B)">'+esc(s.title)+'</div><div style="font:500 11.5px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+esc(productLabel(s))+'</div></td><td style="white-space:nowrap">'+DAYS_SHORT[wd]+' '+parseIso(s.date).getDate()+'</td><td class="ti-num">'+esc(timeLabel(s))+'</td><td class="ti-num">'+pcount(s)+'</td><td class="ti-num">'+fmt(mk)+' kg</td><td class="ti-num">'+realCell+'</td><td class="ti-num">'+varCell+'</td><td class="ti-num">$'+fmt(laborCost(s))+'</td><td class="ti-num">'+cpkCell+'</td><td>'+estadoPill(s)+'</td></tr>'; }).join("");
         var totalRow='<tr style="background:var(--ti-surface2,#F3F6F9)"><td style="font-weight:700">Total semana</td><td></td><td></td><td class="ti-num" style="font-weight:700">'+vis.reduce(function(a,s){return a+pcount(s);},0)+'</td><td class="ti-num" style="font-weight:700">'+fmt(mKg)+' kg</td><td class="ti-num" style="font-weight:700">'+(closedVis.length?fmt(rKg)+" kg":"—")+'</td><td></td><td class="ti-num" style="font-weight:700">$'+fmt(cost)+'</td><td class="ti-num" style="font-weight:700">'+(realCPK!=null?"$"+fmt(realCPK):"—")+'</td><td></td></tr>';
         var cumpl_tbl='<section style="'+CARD+';overflow:hidden">'+sectionHead("Cumplimiento por turno","Meta vs. real de la semana · haz clic para editar")+'<div style="overflow:auto"><table class="ti-tbl"><thead><tr><th>Turno</th><th>Día</th><th style="text-align:right">Horario</th><th style="text-align:right">Pers.</th><th style="text-align:right">Kg meta</th><th style="text-align:right">Kg real</th><th style="text-align:right">Variación</th><th style="text-align:right">Costo</th><th style="text-align:right">Costo/kg</th><th>Estado</th></tr></thead><tbody>'+rows+totalRow+'</tbody></table></div></section>';
         /* ---- Bolsas: compras vs uso real vs merma ----
@@ -2895,11 +2976,10 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
           var TURNOS=[{k:"am",n:"Turno AM",h:"Lun-Vie 07:00-16:00 · Sáb 08:30-12:30",c:th.types.b.bar},
                       {k:"ext",n:"Extensión",h:"Todos los días 16:00-21:30",c:th.types.custom.bar},
                       {k:"pm",n:"Turno PM / Noche",h:"Lun-Vie 22:00-06:30",c:th.types.night.bar}];
-          var dbs=config.defaultByShift||{am:[],ext:[],pm:[]};
           var gente=(config.roster||[]).map(function(n){return (n||"").trim();}).filter(Boolean);
           if(!gente.length) return '<section style="'+CARD+';overflow:hidden">'+sectionHead("Quién va en cada turno","")+'<div style="padding:22px;text-align:center;color:var(--ti-muted,#647787);font:500 13px \'Space Grotesk\'">Agrega personas arriba para poder asignarlas.</div></section>';
           var cols=TURNOS.map(function(t){
-            var asignados=(dbs[t.k]||[]).filter(function(n){ return gente.indexOf(n)>=0; });
+            var asignados=dbsVivo(t.k);
             var filas=gente.map(function(n){
               var on=asignados.indexOf(n)>=0;
               var part=esPartTime(n);
@@ -2986,7 +3066,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     function grpAddBtn(g,label){ return '<button class="ti-ghost ti-press" data-act="addPerson" data-pg="'+g+'" style="margin-top:10px;display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 14px;border-radius:11px;border:1px dashed var(--ti-line,#cdd6df);color:var(--ti-text,#14202B);font:600 13px \'Space Grotesk\';background:var(--ti-surface2,#F3F6F9)">'+IC.plus(15)+label+'</button>'; }
     var barb='<span style="width:5px;height:14px;border-radius:3px;background:var(--ti-accent,#0E8FD6);display:block"></span>';
     var peopleSection;
-    var costBoxesHtml='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px">'+databox("Costo mano de obra","data-labor","$"+fmt(draftLabor()))+databox("Costo/kg estimado (meta)","data-cpk",draftCPK())+'</div>';
+    var costBoxesHtml='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:16px">'+databox("Costo mano de obra","data-labor","$"+fmt(draftLabor()))+databox("Bono líquido (en meta)","data-bonometa","$"+fmt(draftBonoLiquido(draftMetaKg())))+databox("Costo/kg con bono (meta)","data-cpk",draftCPK())+'</div>';
     if(d.type==="am"){
       var draftPI=draftPresentInfo();
       var draftPInote=draftPI.licencia?(' <span style="color:var(--ti-warn,#B26B00);font-weight:600">('+draftPI.licencia+' con licencia)</span>'):'';
@@ -3037,6 +3117,19 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       var realRows=d.products.map(function(p,idx){ var r=draftComputedReal(idx); var kgTxt=r?fmt(Math.round(r.kg)):"—"; var meshTxt=(r&&r.mesh!=null)?fmt1(r.mesh):"—"; return '<div style="display:grid;grid-template-columns:1fr 84px 84px;gap:8px;align-items:center"><span style="font:500 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product)+'</span><span data-realout-mesh="'+idx+'" style="height:38px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line2,#E8EDF2);color:var(--ti-muted,#647787);font:600 13px \'IBM Plex Mono\'">'+meshTxt+'</span><span data-realout-kg="'+idx+'" style="height:38px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:var(--ti-surface2,#F3F6F9);border:1px solid var(--ti-line2,#E8EDF2);color:var(--ti-text,#14202B);font:600 13px \'IBM Plex Mono\'">'+kgTxt+'</span></div>'; }).join("");
       var finRows=d.products.map(function(p,idx){ var v=(d.invCounts&&d.invCounts[idx])||{mesh:"",kg:""}; var f=kgMalla(p.product); var kgRO=f>0?" readonly":ro; return '<div style="display:grid;grid-template-columns:1fr 76px 76px;gap:7px;align-items:center"><span style="font:500 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product)+'</span><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(v.mesh)+'" data-invclose-idx="'+idx+'" data-invclose-f="mesh" placeholder="mallas"'+ro+'><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(v.kg)+'" data-invclose-idx="'+idx+'" data-invclose-f="kg" data-invclosekgof="'+idx+'" placeholder="kg"'+kgRO+'></div>'; }).join("");
       var invCloseHtml='<div style="margin-top:16px;padding:13px 14px;border:1px dashed var(--ti-line,#cdd6df);border-radius:12px;background:var(--ti-surface2,#F3F6F9)"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="color:var(--ti-muted,#647787);display:flex">'+IC.box(15)+'</span><span style="font:700 12px \'Space Grotesk\';color:var(--ti-text,#14202B)">Inventario final del turno</span></div><p style="margin:0 0 10px;font:500 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">Mallas que <b>quedaron</b> al cierre. Con esto y el inventario inicial, la producción real se calcula sola (Final − Inicial + Salidas).</p>'+invRowsHead+'<div style="display:flex;flex-direction:column;gap:7px">'+finRows+'</div>'+saco20Row("fin",fin20)+'</div>';
+
+      /* ---- Merma del turno: hielo producido que se perdió ---- */
+      var mermaRowsHtml=d.products.map(function(p,idx){
+        var v=((d.mermaCount||[])[idx])||{mesh:""};
+        var mm=Number(v.mesh||0);
+        return '<div style="display:grid;grid-template-columns:1fr 76px 76px;gap:7px;align-items:center"><span style="font:500 12.5px \'Space Grotesk\';color:var(--ti-text,#14202B);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product)+'</span><input type="number" min="0" step="1" inputmode="numeric" value="'+esc(v.mesh)+'" data-merma-idx="'+idx+'" placeholder="mallas"'+ro+'><span class="ti-num" style="font:600 12px \'IBM Plex Mono\';color:var(--ti-muted,#647787);text-align:center">'+(mm>0?(fmt(Math.round(mm*kgMalla(p.product)))+" kg"):"—")+'</span></div>';
+      }).join("");
+      var totalMermaDraft=d.products.reduce(function(a,p,i){ return a+draftMerma(i); },0);
+      var mermaHtml='<div style="margin-top:14px;padding:13px 14px;border:1px dashed var(--ti-warn,#B26B00);border-radius:12px;background:var(--ti-warn-bg,#FFF5E0)">'+
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="color:var(--ti-warn,#B26B00);display:flex">'+IC.alert(15)+'</span><span style="font:700 12px \'Space Grotesk\';color:var(--ti-text,#14202B)">Merma del turno (opcional)</span>'+(totalMermaDraft>0?('<span style="margin-left:auto;font:700 12px \'IBM Plex Mono\';color:var(--ti-warn,#B26B00)">'+fmt(totalMermaDraft)+' mallas</span>'):'')+'</div>'+
+        '<p style="margin:0 0 10px;font:500 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">Mallas que se produjeron pero se perdieron (rotas, derretidas, mal selladas). <b>No castiga el bono</b>: el equipo sí las trabajó, así que el bono se calcula sobre la producción con la merma incluida. La producción neta y el costo/kg siguen contando solo lo vendible.</p>'+
+        invRowsHead.replace("MALLAS","MALLAS").replace("KILOS","KILOS")+
+        '<div style="display:flex;flex-direction:column;gap:7px">'+mermaRowsHtml+'</div></div>';
       var attNames=rosterNames(d.type==="am"?d.groupA.concat(d.groupB).concat(d.groupPT||[]):d.people);
       var attRows=attNames.map(function(nm){
         var st=(d.attendance&&d.attendance[nm])||"presente";
@@ -3049,13 +3142,13 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
       }).join("");
       var attHtml=attNames.length?('<div style="margin-top:16px;padding:13px 14px;border:1px dashed var(--ti-line,#cdd6df);border-radius:12px;background:var(--ti-surface2,#F3F6F9)"><div style="display:flex;align-items:center;gap:8px;margin-bottom:2px"><span style="color:var(--ti-muted,#647787);display:flex">'+IC.check(15)+'</span><span style="font:700 12px \'Space Grotesk\';color:var(--ti-text,#14202B)">Asistencia</span></div><p style="margin:0 0 4px;font:500 11px \'Space Grotesk\';color:var(--ti-muted,#647787)">Con licencia igual se paga. Ausente sin licencia no se cuenta en el costo de mano de obra.</p>'+attRows+'</div>'):"";
       realHtml='<div data-real style="margin-bottom:22px;padding-top:20px;border-top:1px solid var(--ti-line,#DCE3EA)"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px"><div style="font:700 13px \'Space Grotesk\';color:var(--ti-text,#14202B);display:flex;align-items:center;gap:8px">'+stepBadge(5)+'<span style="width:5px;height:14px;border-radius:3px;background:var(--ti-ok,#12A150);display:block"></span>Cierre de turno · Producción real (calculada)</div>'+(closed?'<span style="display:inline-flex;align-items:center;gap:5px;font:600 11px \'Space Grotesk\';color:var(--ti-ok,#12A150);background:var(--ti-ok-soft,#E4F5EC);padding:4px 9px;border-radius:8px">'+IC.lock(12)+'Fijado</span>':'')+'</div><p style="margin:0 0 13px;font:500 12px \'Space Grotesk\';color:var(--ti-muted,#647787)">'+(closed?"Producción registrada y fijada. Reábrelo para corregir.":"Se calcula sola: <b>Inventario final − Inventario inicial + Salidas</b>. No se anota a mano.")+'</p>'+
-        invCloseHtml+
+        invCloseHtml+mermaHtml+
         '<div style="margin-top:14px;display:grid;grid-template-columns:1fr 84px 84px;gap:8px;margin-bottom:8px"><span style="font:700 10px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:var(--ti-muted,#647787)">Producto</span><span style="font:700 10px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:var(--ti-muted,#647787);text-align:center">Mallas</span><span style="font:700 10px \'Space Grotesk\';letter-spacing:.05em;text-transform:uppercase;color:var(--ti-muted,#647787);text-align:center">Kilos</span></div>'+
         '<div style="display:flex;flex-direction:column;gap:8px">'+realRows+'</div>'+
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px"><div data-var-kg style="font:500 11px \'Space Grotesk\'">'+varianceHTML(draftAnyRealKg()?String(draftRealKg()):"",mkD,"kg")+'</div><div data-var-mesh style="font:500 11px \'Space Grotesk\'">'+varianceHTML(draftAnyRealMesh()?String(draftRealMesh()):"",mmD,"mallas")+'</div></div>'+
         attHtml+
-        '<div style="margin-top:12px">'+databox("Costo mano de obra (real)","data-labor2","$"+fmt(draftLabor()))+'</div>'+
-        '<div style="margin-top:12px">'+databox("Costo por kilo (real)","data-realcpk",draftRealCPK())+'</div>'+
+        '<div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px">'+databox("Costo mano de obra (real)","data-labor2","$"+fmt(draftLabor()))+databox("Bono líquido del turno","data-bonoreal",(function(){ if(!draftRealTotalsKnown()) return "—"; var kg=draftRealKg(); var dd=state.draft; var km=(dd.products||[]).reduce(function(a,p,i){ return a+draftMerma(i)*kgMalla(p.product); },0); return "$"+fmt(draftBonoLiquido(kg+km)); })())+'</div>'+
+        '<div style="margin-top:12px">'+databox("Costo por kilo (real, con bono)","data-realcpk",draftRealCPK())+'</div>'+
         (closed?'<button class="ti-ghost ti-press" data-act="reopen" style="margin-top:16px;display:inline-flex;align-items:center;gap:7px;height:42px;padding:0 16px;border-radius:11px;border:1px solid var(--ti-line,#DCE3EA);background:var(--ti-surface,#fff);color:var(--ti-text,#14202B);font:600 13.5px \'Space Grotesk\'">Reabrir turno</button>':'<button class="ti-primary ti-press" data-act="closeShift" style="margin-top:16px;display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;height:44px;border-radius:11px;background:var(--ti-ok,#12A150);color:#fff;font:600 13.5px \'Space Grotesk\';box-shadow:0 8px 20px rgba(18,161,80,.28)">'+IC.check(15)+'Registrar y cerrar turno</button>')+'</div>';
     }
     var drawerStyle="position:fixed;top:0;right:0;width:min(540px,100vw);height:100dvh;z-index:60;background:var(--ti-surface,#fff);border-left:1px solid var(--ti-line,#DCE3EA);box-shadow:-20px 0 52px rgba(11,15,20,"+(dark?".6":".22")+");display:flex;flex-direction:column;transition:transform .28s cubic-bezier(.4,0,.2,1);transform:translateX("+(state.drawerOpen?"0":"105%")+")";
@@ -3246,7 +3339,27 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ti-accent,
     var combo=e.target.closest("[data-combo-ids]"); if(combo){ openChooser(combo.getAttribute("data-combo-ids"),e.clientX,e.clientY); } });
   root.addEventListener("dblclick",function(e){ var col=e.target.closest("[data-daycol]"); if(!col) return; if(e.target.closest("[data-card-id]")||e.target.closest("[data-combo-ids]")) return; onColDbl(col,e); });
   root.addEventListener("mousedown",function(e){ var handle=e.target.closest("[data-resize-id]"); if(handle){ onResizeDown(handle.getAttribute("data-resize-id"),e); return; } var card=e.target.closest("[data-card-id]"); if(card){ onCardDown(card.getAttribute("data-card-id"),e); } });
-  root.addEventListener("input",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-person-idx")){ var pg=t.getAttribute("data-person-group")||""; var pk=pkey(pg); state.draft[pk][+t.getAttribute("data-person-idx")]=t.value; updateComputed(); } else if(t.hasAttribute("data-invini-idx")){ var vi=+t.getAttribute("data-invini-idx"); var vif=t.getAttribute("data-invini-f"); if(!state.draft.invInicial) state.draft.invInicial=[]; if(!state.draft.invInicial[vi]) state.draft.invInicial[vi]={mesh:"",kg:""}; state.draft.invInicial[vi][vif]=t.value; if(vif==="mesh") autoKgInvIni(vi); updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="mesh") autoKgProd(pi); updateComputed(); } else if(t.hasAttribute("data-invclose-idx")){ var ii=+t.getAttribute("data-invclose-idx"); var iif=t.getAttribute("data-invclose-f"); if(!state.draft.invCounts) state.draft.invCounts=[]; if(!state.draft.invCounts[ii]) state.draft.invCounts[ii]={mesh:"",kg:""}; state.draft.invCounts[ii][iif]=t.value; if(iif==="mesh") autoKgInvFinal(ii); updateComputed(); } else if(t.hasAttribute("data-saco20-tag")){ var s20tag=t.getAttribute("data-saco20-tag"); var s20f=t.getAttribute("data-saco20-f"); var s20key=s20tag==="ini"?"invInicial20":"invFinal20"; if(!state.draft[s20key]) state.draft[s20key]={sacos:"",kg:""}; state.draft[s20key][s20f]=t.value; if(s20f==="sacos") autoKgSaco20(s20tag); updateComputed(); } else if(t.hasAttribute("data-cfg-prod")){ config.bagStock[t.getAttribute("data-cfg-prod")]=t.value; } else if(t.hasAttribute("data-cfg-num")){ config[t.getAttribute("data-cfg-num")]=t.value; } else if(t.hasAttribute("data-cfg-list")){ var lk=t.getAttribute("data-cfg-list"); var cf=lk==="roster"?"roster":(lk==="defA"?"defaultGroupA":"defaultGroupB"); if(!config[cf])config[cf]=[]; config[cf][+t.getAttribute("data-cfg-idx")]=t.value; } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="mesh"){ var fac=kgMalla(state.invDraft.product); if(fac>0){ state.invDraft.qty=(t.value===""?"":String(Number(t.value||0)*fac)); var qe=root.querySelector('[data-inv-f="qty"]'); if(qe){ qe.value=state.invDraft.qty; qe.readOnly=true; } } } } else if(t.hasAttribute("data-salrow-idx")){ var sri=+t.getAttribute("data-salrow-idx"); var srf=t.getAttribute("data-salrow-f"); if(!state.draft.salidasCount) state.draft.salidasCount=[]; if(!state.draft.salidasCount[sri]) state.draft.salidasCount[sri]={mesh:"",kg:""}; state.draft.salidasCount[sri][srf]=t.value; if(srf==="mesh") autoKgSalRow(sri); updateComputed(); } else if(t.hasAttribute("data-metaquick-f")){ if(!state.metaQuick) state.metaQuick={product:activeProducts()[0]||"Original 3 kg",mesh:"",kg:""}; var mqf=t.getAttribute("data-metaquick-f"); state.metaQuick[mqf]=t.value; if(mqf==="mesh"){ var mqfac=kgMalla(state.metaQuick.product); if(mqfac>0){ state.metaQuick.kg=(t.value===""?"":String(Number(t.value||0)*mqfac)); var mqke=root.querySelector('[data-metaquick-f="kg"]'); if(mqke){ mqke.value=state.metaQuick.kg; mqke.readOnly=true; } } } else if(mqf==="product"){ render(); } } else if(t.hasAttribute("data-metaday-iso")){ var mdIso=t.getAttribute("data-metaday-iso"), mdProd=t.getAttribute("data-metaday-product"), mdF=t.getAttribute("data-metaday-f"); if(mdF==="mesh"){ var mdFac=kgMalla(mdProd); if(mdFac>0){ var kgv=(t.value===""?"":String(Number(t.value||0)*mdFac)); var kgEl=root.querySelector('[data-metadaykgof="'+mdIso+'|'+mdProd+'"]'); if(kgEl){ kgEl.value=kgv; kgEl.readOnly=true; } } } } else if(t.hasAttribute("data-sal-f")){ var sf=t.getAttribute("data-sal-f"); state.salDraft[sf]=t.value; if(sf==="mesh"){ var sfac=kgMalla(state.salDraft.product); if(sfac>0){ state.salDraft.kg=(t.value===""?"":String(Number(t.value||0)*sfac)); var ske=root.querySelector('[data-sal-f="kg"]'); if(ske){ ske.value=state.salDraft.kg; ske.readOnly=true; } } } } else if(t.hasAttribute("data-payr-name")){ autoPayRow(t.getAttribute("data-payr-name")); } else if(t.hasAttribute("data-payx-name")){ autoPayRow(t.getAttribute("data-payx-name")); } else if(t.hasAttribute("data-compra-f")){ if(!state.compraDraft) state.compraDraft={}; state.compraDraft[t.getAttribute("data-compra-f")]=t.value; } else if(t.hasAttribute("data-quickadd-f")){ if(!state.quickAddDraft) state.quickAddDraft={}; state.quickAddDraft[t.getAttribute("data-quickadd-f")]=t.value; } else if(t.hasAttribute("data-quickname-f")){ state.quickNameDraft=t.value; }
+  root.addEventListener("input",function(e){ var t=e.target; if(t.hasAttribute("data-f")){ state.draft[t.getAttribute("data-f")]=t.value; updateComputed(); } else if(t.hasAttribute("data-person-idx")){ var pg=t.getAttribute("data-person-group")||""; var pk=pkey(pg); state.draft[pk][+t.getAttribute("data-person-idx")]=t.value; updateComputed(); } else if(t.hasAttribute("data-invini-idx")){ var vi=+t.getAttribute("data-invini-idx"); var vif=t.getAttribute("data-invini-f"); if(!state.draft.invInicial) state.draft.invInicial=[]; if(!state.draft.invInicial[vi]) state.draft.invInicial[vi]={mesh:"",kg:""}; state.draft.invInicial[vi][vif]=t.value; if(vif==="mesh") autoKgInvIni(vi); updateComputed(); } else if(t.hasAttribute("data-prod-idx")){ var pi=+t.getAttribute("data-prod-idx"); var pf=t.getAttribute("data-prod-f"); state.draft.products[pi][pf]=t.value; if(pf==="mesh") autoKgProd(pi); updateComputed(); } else if(t.hasAttribute("data-merma-idx")){ var mi=+t.getAttribute("data-merma-idx"); if(!state.draft.mermaCount) state.draft.mermaCount=state.draft.products.map(function(){return {mesh:""};}); state.draft.mermaCount[mi]={mesh:t.value}; updateComputed(); render(); }
+    else if(t.hasAttribute("data-invclose-idx")){ var ii=+t.getAttribute("data-invclose-idx"); var iif=t.getAttribute("data-invclose-f"); if(!state.draft.invCounts) state.draft.invCounts=[]; if(!state.draft.invCounts[ii]) state.draft.invCounts[ii]={mesh:"",kg:""}; state.draft.invCounts[ii][iif]=t.value; if(iif==="mesh") autoKgInvFinal(ii); updateComputed(); } else if(t.hasAttribute("data-saco20-tag")){ var s20tag=t.getAttribute("data-saco20-tag"); var s20f=t.getAttribute("data-saco20-f"); var s20key=s20tag==="ini"?"invInicial20":"invFinal20"; if(!state.draft[s20key]) state.draft[s20key]={sacos:"",kg:""}; state.draft[s20key][s20f]=t.value; if(s20f==="sacos") autoKgSaco20(s20tag); updateComputed(); } else if(t.hasAttribute("data-cfg-prod")){ config.bagStock[t.getAttribute("data-cfg-prod")]=t.value; } else if(t.hasAttribute("data-cfg-num")){ config[t.getAttribute("data-cfg-num")]=t.value; } else if(t.hasAttribute("data-cfg-list")){
+      var lk=t.getAttribute("data-cfg-list"); var cf=lk==="roster"?"roster":(lk==="defA"?"defaultGroupA":"defaultGroupB");
+      if(!config[cf])config[cf]=[];
+      var idxCfg=+t.getAttribute("data-cfg-idx");
+      var antesNom=String(config[cf][idxCfg]||"").trim();
+      var ahoraNom=String(t.value||"").trim();
+      config[cf][idxCfg]=t.value;
+      // Si se RENOMBRA a alguien del roster, arrastrar su nombre a todo lo que lo
+      // referencia — si no, el nombre viejo queda huérfano en "Quién va en cada
+      // turno", en su tipo y en sus pagos, y el nuevo se suma como si fuera otra
+      // persona (14-sep-2026: los turnos AM terminaron con 8 en vez de 6).
+      if(cf==="roster"&&antesNom&&ahoraNom&&antesNom!==ahoraNom){
+        if(config.defaultByShift){ ["am","ext","pm"].forEach(function(k){
+          config.defaultByShift[k]=(config.defaultByShift[k]||[]).map(function(n){ return String(n||"").trim()===antesNom?ahoraNom:n; });
+        }); }
+        if(config.rosterType&&config.rosterType[antesNom]!==undefined){ config.rosterType[ahoraNom]=config.rosterType[antesNom]; delete config.rosterType[antesNom]; }
+        if(config.payRates&&config.payRates[antesNom]!==undefined){ config.payRates[ahoraNom]=config.payRates[antesNom]; delete config.payRates[antesNom]; }
+        if(config.payExtra&&config.payExtra[antesNom]!==undefined){ config.payExtra[ahoraNom]=config.payExtra[antesNom]; delete config.payExtra[antesNom]; }
+      }
+    } else if(t.hasAttribute("data-inv-f")){ var iff=t.getAttribute("data-inv-f"); state.invDraft[iff]=t.value; if(iff==="mesh"){ var fac=kgMalla(state.invDraft.product); if(fac>0){ state.invDraft.qty=(t.value===""?"":String(Number(t.value||0)*fac)); var qe=root.querySelector('[data-inv-f="qty"]'); if(qe){ qe.value=state.invDraft.qty; qe.readOnly=true; } } } } else if(t.hasAttribute("data-salrow-idx")){ var sri=+t.getAttribute("data-salrow-idx"); var srf=t.getAttribute("data-salrow-f"); if(!state.draft.salidasCount) state.draft.salidasCount=[]; if(!state.draft.salidasCount[sri]) state.draft.salidasCount[sri]={mesh:"",kg:""}; state.draft.salidasCount[sri][srf]=t.value; if(srf==="mesh") autoKgSalRow(sri); updateComputed(); } else if(t.hasAttribute("data-metaquick-f")){ if(!state.metaQuick) state.metaQuick={product:activeProducts()[0]||"Original 3 kg",mesh:"",kg:""}; var mqf=t.getAttribute("data-metaquick-f"); state.metaQuick[mqf]=t.value; if(mqf==="mesh"){ var mqfac=kgMalla(state.metaQuick.product); if(mqfac>0){ state.metaQuick.kg=(t.value===""?"":String(Number(t.value||0)*mqfac)); var mqke=root.querySelector('[data-metaquick-f="kg"]'); if(mqke){ mqke.value=state.metaQuick.kg; mqke.readOnly=true; } } } else if(mqf==="product"){ render(); } } else if(t.hasAttribute("data-metaday-iso")){ var mdIso=t.getAttribute("data-metaday-iso"), mdProd=t.getAttribute("data-metaday-product"), mdF=t.getAttribute("data-metaday-f"); if(mdF==="mesh"){ var mdFac=kgMalla(mdProd); if(mdFac>0){ var kgv=(t.value===""?"":String(Number(t.value||0)*mdFac)); var kgEl=root.querySelector('[data-metadaykgof="'+mdIso+'|'+mdProd+'"]'); if(kgEl){ kgEl.value=kgv; kgEl.readOnly=true; } } } } else if(t.hasAttribute("data-sal-f")){ var sf=t.getAttribute("data-sal-f"); state.salDraft[sf]=t.value; if(sf==="mesh"){ var sfac=kgMalla(state.salDraft.product); if(sfac>0){ state.salDraft.kg=(t.value===""?"":String(Number(t.value||0)*sfac)); var ske=root.querySelector('[data-sal-f="kg"]'); if(ske){ ske.value=state.salDraft.kg; ske.readOnly=true; } } } } else if(t.hasAttribute("data-payr-name")){ autoPayRow(t.getAttribute("data-payr-name")); } else if(t.hasAttribute("data-payx-name")){ autoPayRow(t.getAttribute("data-payx-name")); } else if(t.hasAttribute("data-compra-f")){ if(!state.compraDraft) state.compraDraft={}; state.compraDraft[t.getAttribute("data-compra-f")]=t.value; } else if(t.hasAttribute("data-quickadd-f")){ if(!state.quickAddDraft) state.quickAddDraft={}; state.quickAddDraft[t.getAttribute("data-quickadd-f")]=t.value; } else if(t.hasAttribute("data-quickname-f")){ state.quickNameDraft=t.value; }
     else if(t.hasAttribute("data-cfg-rostertype")){ var rn=t.getAttribute("data-cfg-rostertype"); if(!config.rosterType) config.rosterType={}; config.rosterType[rn]=t.value; persistCfg(); cloudSet('config',config); syncRostersFromConfig(); render(); }
     else if(t.hasAttribute("data-meta-mensual")){ config.metaMensualTon=Number(t.value||0); persistCfg(); cloudSet('config',config); }
     else if(t.hasAttribute("data-sacos-which")){ setSacos(t.getAttribute("data-sacos-which"),t.value); }
